@@ -1,0 +1,100 @@
+/*
+ * Design tokens. Light palette lives on bare :root; dark overrides only
+ * under prefers-color-scheme (design.md §6: "No dark-mode toggle in v1.
+ * Respect prefers-color-scheme only.") Every pairing below was chosen to
+ * clear 4.5:1 contrast for body text, including the provider badge and the
+ * abstention card, which design.md calls out explicitly (§4).
+ */
+:root {
+  --bg: #ffffff;
+  --bg-elevated: #f9fafb;
+  --fg: #18181b;
+  --fg-muted: #52525b;
+  --border: #e4e4e7;
+  --accent: #4338ca;
+  --accent-fg: #ffffff;
+
+  --badge-bg: #eef2ff;
+  --badge-fg: #3730a3;
+  --badge-border: #c7d2fe;
+  --badge-dot: #16a34a;
+  --badge-dot-loading: #a1a1aa;
+  --badge-fg-failed: #991b1b;
+  --badge-bg-failed: #fee2e2;
+  --badge-border-failed: #fecaca;
+  --badge-dot-failed: #dc2626;
+
+  --error-bg: #fef2f2;
+  --error-fg: #7f1d1d;
+  --error-border: #fecaca;
+  --error-icon: #b91c1c;
+
+  --abstain-bg: #f4f4f5;
+  --abstain-fg: #27272a;
+  --abstain-border: #d4d4d8;
+  --abstain-icon: #52525b;
+
+  --user-bubble-bg: #4338ca;
+  --user-bubble-fg: #ffffff;
+  --assistant-bubble-bg: #f4f4f5;
+  --assistant-bubble-fg: #18181b;
+
+  --chip-bg: #ffffff;
+  --chip-fg: #3730a3;
+  --chip-border: #c7d2fe;
+  --chip-bg-hover: #eef2ff;
+
+  --sandbox-border: #f59e0b;
+  --sandbox-bg: #fffbeb;
+  --sandbox-fg: #78350f;
+
+  --focus-ring: #4338ca;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121214;
+    --bg-elevated: #1c1c1f;
+    --fg: #f4f4f5;
+    --fg-muted: #a1a1aa;
+    --border: #303034;
+    --accent: #818cf8;
+    --accent-fg: #1e1b4b;
+
+    --badge-bg: #1e1b4b;
+    --badge-fg: #c7d2fe;
+    --badge-border: #3730a3;
+    --badge-dot: #4ade80;
+    --badge-dot-loading: #71717a;
+    --badge-fg-failed: #fecaca;
+    --badge-bg-failed: #450a0a;
+    --badge-border-failed: #7f1d1d;
+    --badge-dot-failed: #f87171;
+
+    --error-bg: #2a0f0f;
+    --error-fg: #fecaca;
+    --error-border: #7f1d1d;
+    --error-icon: #f87171;
+
+    --abstain-bg: #1f1f23;
+    --abstain-fg: #e4e4e7;
+    --abstain-border: #3f3f46;
+    --abstain-icon: #d4d4d8;
+
+    --user-bubble-bg: #4f46e5;
+    --user-bubble-fg: #ffffff;
+    --assistant-bubble-bg: #1f1f23;
+    --assistant-bubble-fg: #f4f4f5;
+
+    --chip-bg: #1c1c1f;
+    --chip-fg: #c7d2fe;
+    --chip-border: #3730a3;
+    --chip-bg-hover: #26264a;
+
+    --sandbox-border: #b45309;
+    --sandbox-bg: #2a1a06;
+    --sandbox-fg: #fcd34d;
+
+    --focus-ring: #818cf8;
+  }
+}
