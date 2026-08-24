@@ -21,12 +21,13 @@ CREATE TABLE episodes (
 );
 
 CREATE TABLE chunks (
-  id           BIGSERIAL PRIMARY KEY,
-  episode_id   BIGINT      NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
-  ordinal      INTEGER     NOT NULL,
-  text         TEXT        NOT NULL,
-  token_count  INTEGER     NOT NULL,
-  embedding    vector(768) NOT NULL,
+  id             BIGSERIAL PRIMARY KEY,
+  episode_id     BIGINT      NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  ordinal        INTEGER     NOT NULL,
+  text           TEXT        NOT NULL,
+  token_count    INTEGER     NOT NULL,
+  start_seconds  INTEGER,    -- nearest preceding speaker-turn timestamp; NULL if unparseable
+  embedding      vector(768) NOT NULL,
   UNIQUE (episode_id, ordinal)
 );
 

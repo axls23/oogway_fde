@@ -672,7 +672,7 @@ Rejected. It fails a hard client requirement and discards Pi's skills, tool sche
 
 **Status:** Accepted
 
-**Context.** Postgres is required for conversation persistence regardless. A corpus of 269 transcripts yields chunks in the tens of thousands.
+**Context.** Postgres is required for conversation persistence regardless. A corpus of 303 transcripts yields chunks in the tens of thousands.
 
 **Decision.** Use pgvector in the same Postgres instance.
 

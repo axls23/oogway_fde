@@ -6,7 +6,7 @@
 | **Version** | 1.0 |
 | **Engagement** | Forward-deployment, single-engineer, one-day build window |
 | **Stack** | React/Vite · FastAPI · Pi Coding Agent (Node sidecar) · Ollama · Postgres + pgvector |
-| **Corpus** | `ChatPRD/lennys-podcast-transcripts` — 269 episode transcripts with YAML frontmatter |
+| **Corpus** | `ChatPRD/lennys-podcast-transcripts` — 303 episode transcripts with YAML frontmatter |
 
 ---
 
@@ -52,7 +52,7 @@ Both personas **arrive with a situation, not a query.** They type *"our activati
 
 ## 2. Problem
 
-Lenny's Podcast is one of the densest sources of tactical product and growth advice available, and it is effectively unsearchable. 269 episodes of long-form conversation means the knowledge exists but cannot be retrieved at the moment of decision. Teams fall back on whoever happens to remember the right episode.
+Lenny's Podcast is one of the densest sources of tactical product and growth advice available, and it is effectively unsearchable. 303 episodes of long-form conversation means the knowledge exists but cannot be retrieved at the moment of decision. Teams fall back on whoever happens to remember the right episode.
 
 Two failure modes bound the solution:
 
@@ -101,13 +101,13 @@ Recorded because the brief was incomplete. Each carries the signal that would in
 | # | Assumption | Rationale | Risk if wrong | Invalidation signal |
 |---|---|---|---|---|
 | A1 | Primary user is an IC PM / growth lead, not an executive | The corpus is tactical; exec users would want summary dashboards | Wrong output shape and tone throughout | Users ask for trends and aggregates rather than specific advice |
-| A2 | Retrieval beats long-context | 269 long-form transcripts exceed any locally-runnable context window by orders of magnitude | Wasted index infrastructure | A local model with a very large usable window becomes viable |
+| A2 | Retrieval beats long-context | 303 long-form transcripts exceed any locally-runnable context window by orders of magnitude | Wasted index infrastructure | A local model with a very large usable window becomes viable |
 | A3 | The vector index is **pre-built and seeded**, not built at first run | Evaluator patience is the scarcest resource in the engagement | A 20-minute cold start destroys the first impression | Ingest of the full corpus measured under 5 minutes |
 | A4 | The citation unit is the episode, keyed on frontmatter (`guest`, `title`, `youtube_url`, `publish_date`) | The metadata is structured and already present in every transcript | Citations become unverifiable | Users ask "where in the episode?" more than "which episode?" |
 | A5 | Single-user, no authentication; `user_metadata` is a populated but unenforced column | Not requested, and auth is pure cost against a one-day budget | Cannot deploy beyond a single trusted team | Any request to share sessions between people |
 | A6 | Local model is the **default**; cloud is opt-in and degrades gracefully when absent | The demo must run with an empty `.env` | Startup crash for any evaluator without an API key | — |
 | A7 | Ship 30 principles are extracted once and committed as a versioned skill artifact | The brief explicitly asks for encoding rather than prompting | Reads as an unstructured one-off prompt; fails §4.2 | — |
-| A8 | Transcripts carry no reliable per-line timestamps | Common for this archive format; to be verified in the first hour | Lose deep-link-to-moment citations, a meaningful UX downgrade | Timestamps found in transcript body |
+| A8 | ~~Transcripts carry no reliable per-line timestamps~~ **Invalidated during build.** Every speaker turn is timestamped (`Guest Name (HH:MM:SS):`), consistently across a spot-check of the corpus. `chunks.start_seconds` (nearest preceding speaker-turn timestamp) was added to the schema before any code depended on it, and citations deep-link to `youtube_url&t={start_seconds}s`. | Original assumption was a guess pending verification | (resolved) | Corpus clone + spot-check, 2026-08-24 |
 | A9 | Query volume is low — single team, tens of turns per day | Internal tool for one team | Over-engineering for scale we don't have | — |
 
 ---
@@ -139,7 +139,7 @@ Recorded because the brief was incomplete. Each carries the signal that would in
 
 ### Conditional scope cut
 
-If measured ingest of all 269 episodes exceeds 25 minutes on the build machine, the seeded index ships with a **curated subset selected via the repository's own `index/` topic files** (product management, growth strategy, product-market fit, leadership), and the full-corpus ingest remains available as a documented command. This is a deliberate trade of coverage for a working cold start, not a silent shortfall — the README states which episodes are indexed and how to index the rest.
+If measured ingest of all 303 episodes exceeds 25 minutes on the build machine, the seeded index ships with a **curated subset selected via the repository's own `index/` topic files** (product management, growth strategy, product-market fit, leadership), and the full-corpus ingest remains available as a documented command. This is a deliberate trade of coverage for a working cold start, not a silent shortfall — the README states which episodes are indexed and how to index the rest.
 
 ---
 
@@ -312,7 +312,7 @@ Timeboxed to a one-day window. Every checkpoint leaves a demoable system; if the
 
 | Block | Deliverable | Gate |
 |---|---|---|
-| **H0–1** | Three spikes: Pi + Ollama tool-calling, embedding throughput extrapolated to 269 episodes, transcript timestamp check. Repo skeleton, Compose with Postgres + pgvector, `.env.example` | `docker compose up` → `/health` green |
+| **H0–1** | Three spikes: Pi + Ollama tool-calling, embedding throughput extrapolated to 303 episodes, transcript timestamp check. Repo skeleton, Compose with Postgres + pgvector, `.env.example` | `docker compose up` → `/health` green |
 | **H1–3** | **Eval set written by hand first** (20 in-corpus + 5 out). Ingestion: frontmatter parse → chunk → embed → store, idempotent on `content_hash` | 25 questions committed; corpus indexed |
 | **H3–5** | Query rewriter + `/retrieve` with citation payload and relevance floor. Retrieval-only eval run | AC2 threshold met on retrieval alone; AC4 passes |
 | **H5–7** | Pi sidecar, `search_transcripts` tool, SSE through FastAPI, session + message persistence, citation-expand endpoint | AC5, AC6 pass; multi-turn chat cites sources end to end |

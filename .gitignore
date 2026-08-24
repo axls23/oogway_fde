@@ -39,3 +39,4 @@ agent/.pi/sessions/
 
 # Logs
 *.log
+.claude/worktrees/

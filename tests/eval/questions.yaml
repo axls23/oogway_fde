@@ -1,0 +1,85 @@
+# tests/eval/questions.yaml — the fixed evaluation set behind PRD AC2/AC3.
+#
+# Written BEFORE the retrieval pipeline was built (per PRD §10 implementation
+# plan: "eval set written by hand first"), against real episode titles pulled
+# from the actual corpus clone (`ingest/corpus/episodes/*/transcript.md`) on
+# 2026-08-24 — not invented topics. `run_eval.py` runs each question through
+# the live API and reports citations for human grading (grounded_answer_rate,
+# PRD §3) plus mechanically asserts the out-of-corpus set abstains (AC3).
+
+in_corpus:
+  - id: q01
+    question: "What do people say about finding product-market fit early on?"
+    expect_topic: product-market-fit
+  - id: q02
+    question: "How should a PM think about pricing a subscription product?"
+    expect_topic: growth-strategy
+  - id: q03
+    question: "What's the difference between a good PM and a great PM according to operators who've hired a lot of them?"
+    expect_topic: product-management
+  - id: q04
+    question: "What do engineers wish PMs understood better?"
+    expect_topic: product-management
+  - id: q05
+    question: "How did Airbnb think about building trust into their marketplace early on?"
+    expect_topic: product-market-fit
+  - id: q06
+    question: "What growth channels do operators say are underrated right now?"
+    expect_topic: growth-strategy
+  - id: q07
+    question: "How should a growth team think about using AI as a growth channel?"
+    expect_topic: ai
+  - id: q08
+    question: "What are common mistakes people make when scaling a subscription business?"
+    expect_topic: growth-strategy
+  - id: q09
+    question: "What does it take to become a top-tier product manager?"
+    expect_topic: product-management
+  - id: q10
+    question: "How do experienced operators think about prioritizing a roadmap with limited engineering resources?"
+    expect_topic: product-management
+  - id: q11
+    question: "What have founders learned about building community around a product?"
+    expect_topic: product-management
+  - id: q12
+    question: "What's a good framework for deciding when to leave a job or a company?"
+    expect_topic: career-development
+  - id: q13
+    question: "How should product leaders think about prototyping with AI internally?"
+    expect_topic: ai
+  - id: q14
+    question: "What lessons have operators learned from scaling ride-share or marketplace businesses like Uber?"
+    expect_topic: product-market-fit
+  - id: q15
+    question: "What separates products that achieve durable growth from ones that spike and fade?"
+    expect_topic: growth-strategy
+  - id: q16
+    question: "How do CTOs and engineering leaders think about the handoff between product and engineering?"
+    expect_topic: product-management
+  - id: q17
+    question: "What do operators say about the right time to raise prices?"
+    expect_topic: growth-strategy
+  - id: q18
+    question: "What's changed about how companies build AI products versus traditional software?"
+    expect_topic: ai
+  - id: q19
+    question: "How should a first-time founder think about finding their initial customers?"
+    expect_topic: product-market-fit
+  - id: q20
+    question: "What leadership habits do experienced operators say separate good managers from bad ones?"
+    expect_topic: leadership
+
+# Deliberately outside the corpus's subject matter (product/growth/tech
+# operator advice). Must abstain — a confident answer here is a fabrication,
+# not a save. PRD §3 guardrail metric, target 5/5.
+out_of_corpus:
+  - id: o01
+    question: "What's causing the current global shortage of semiconductor-grade silicon wafers?"
+  - id: o02
+    question: "How should I structure a Roth IRA conversion to minimize this year's tax liability?"
+  - id: o03
+    question: "My partner and I are arguing about whether to move in together — what should I do?"
+  - id: o04
+    question: "What's the optimal dosage schedule for ibuprofen for a lower back injury?"
+  - id: o05
+    question: "Explain the current state of nuclear fusion reactor containment technology."

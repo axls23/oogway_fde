@@ -44,6 +44,7 @@ components:
         episode: { type: string }
         guest: { type: string }
         youtube_url: { type: [string, "null"] }
+        start_seconds: { type: [integer, "null"], description: "Nearest preceding speaker-turn timestamp; append as &t={start_seconds}s to youtube_url to deep-link." }
         rank: { type: integer, minimum: 1 }
         score: { type: number }
 
@@ -104,6 +105,7 @@ components:
             youtube_url: { type: [string, "null"] }
             publish_date: { type: [string, "null"], format: date }
             source_path: { type: string }
+        start_seconds: { type: [integer, "null"] }
 
     Artifact:
       type: object
