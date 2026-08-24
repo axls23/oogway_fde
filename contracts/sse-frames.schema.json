@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lenny-growth-assistant/contracts/sse-frames.schema.json",
+  "title": "SSE frame protocol for POST /sessions/{id}/messages",
+  "description": "One of these frame shapes appears as the `data:` payload of each SSE event. The `event:` name matches the top-level key here. See architecture.md §5.",
+  "oneOf": [
+    { "$ref": "#/definitions/stage" },
+    { "$ref": "#/definitions/token" },
+    { "$ref": "#/definitions/citation" },
+    { "$ref": "#/definitions/artifact" },
+    { "$ref": "#/definitions/error" },
+    { "$ref": "#/definitions/done" }
+  ],
+  "definitions": {
+    "stage": {
+      "type": "object",
+      "properties": {
+        "event": { "const": "stage" },
+        "data": {
+          "type": "object",
+          "required": ["stage"],
+          "properties": {
+            "stage": {
+              "type": "string",
+              "enum": ["thinking", "retrieving", "drafting", "outlining", "assembling"]
+            },
+            "detail": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["event", "data"]
+    },
+    "token": {
+      "type": "object",
+      "properties": {
+        "event": { "const": "token" },
+        "data": {
+          "type": "object",
+          "required": ["text"],
+          "properties": { "text": { "type": "string" } },
+          "additionalProperties": false
+        }
+      },
+      "required": ["event", "data"]
+    },
+    "citation": {
+      "type": "object",
+      "properties": {
+        "event": { "const": "citation" },
+        "data": {
+          "type": "object",
+          "required": ["chunk_id", "episode", "guest", "rank", "score"],
+          "properties": {
+            "chunk_id": { "type": "integer" },
+            "episode": { "type": "string" },
+            "guest": { "type": "string" },
+            "rank": { "type": "integer", "minimum": 1 },
+            "score": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["event", "data"]
+    },
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "event": { "const": "artifact" },
+        "data": {
+          "type": "object",
+          "required": ["artifact_id", "kind", "title"],
+          "properties": {
+            "artifact_id": { "type": "string", "format": "uuid" },
+            "kind": { "type": "string", "enum": ["markdown", "html"] },
+            "title": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["event", "data"]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "event": { "const": "error" },
+        "data": {
+          "type": "object",
+          "required": ["code", "message", "retryable"],
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "retryable": { "type": "boolean" },
+            "partial": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["event", "data"]
+    },
+    "done": {
+      "type": "object",
+      "properties": {
+        "event": { "const": "done" },
+        "data": {
+          "type": "object",
+          "required": ["message_id", "latency_ms", "abstained"],
+          "properties": {
+            "message_id": { "type": "string", "format": "uuid" },
+            "latency_ms": { "type": "integer", "minimum": 0 },
+            "abstained": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["event", "data"]
+    }
+  }
+}

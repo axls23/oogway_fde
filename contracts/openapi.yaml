@@ -1,0 +1,373 @@
+openapi: 3.1.0
+info:
+  title: Lenny Growth Assistant API
+  version: "1.0.0"
+  description: >
+    Source of truth for api/ request and response contracts (architecture.md §5).
+    Pydantic models are derived from this file; a Schemathesis CI gate checks
+    the running service against it (§12.6). /internal/retrieve is documented
+    here for completeness but is not proxied to the browser.
+servers:
+  - url: http://localhost:8000
+
+components:
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, trace_id, retryable]
+          properties:
+            code: { type: string, example: OLLAMA_UNREACHABLE }
+            message: { type: string }
+            trace_id: { type: string }
+            retryable: { type: boolean }
+
+    Session:
+      type: object
+      required: [id, title, provider, model, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: [string, "null"] }
+        provider: { type: string, example: ollama }
+        model: { type: string, example: "qwen2.5:7b-instruct" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Citation:
+      type: object
+      required: [chunk_id, episode, guest, youtube_url, rank, score]
+      properties:
+        chunk_id: { type: integer }
+        episode: { type: string }
+        guest: { type: string }
+        youtube_url: { type: [string, "null"] }
+        rank: { type: integer, minimum: 1 }
+        score: { type: number }
+
+    Message:
+      type: object
+      required: [id, session_id, role, content, created_at, abstained]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        role: { type: string, enum: [user, assistant, system] }
+        content: { type: string }
+        rewritten_query: { type: [string, "null"] }
+        trace_id: { type: string }
+        provider: { type: [string, "null"] }
+        model: { type: [string, "null"] }
+        latency_ms: { type: [integer, "null"] }
+        abstained: { type: boolean }
+        created_at: { type: string, format: date-time }
+        citations:
+          type: array
+          items: { $ref: "#/components/schemas/Citation" }
+
+    SessionDetail:
+      allOf:
+        - $ref: "#/components/schemas/Session"
+        - type: object
+          required: [messages]
+          properties:
+            messages:
+              type: array
+              items: { $ref: "#/components/schemas/Message" }
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        title: { type: [string, "null"] }
+
+    PostMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 8000 }
+
+    ChunkDetail:
+      type: object
+      required: [id, text, episode]
+      properties:
+        id: { type: integer }
+        text: { type: string }
+        ordinal: { type: integer }
+        episode:
+          type: object
+          required: [id, guest, title, youtube_url, source_path]
+          properties:
+            id: { type: integer }
+            guest: { type: string }
+            title: { type: string }
+            youtube_url: { type: [string, "null"] }
+            publish_date: { type: [string, "null"], format: date }
+            source_path: { type: string }
+
+    Artifact:
+      type: object
+      required: [id, session_id, kind, content, sanitized, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        message_id: { type: [string, "null"], format: uuid }
+        kind: { type: string, enum: [markdown, html] }
+        title: { type: [string, "null"] }
+        content: { type: string }
+        sanitized: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    ConfigResponse:
+      type: object
+      required: [provider, model, cloud_available, corpus]
+      properties:
+        provider: { type: string, enum: [ollama, anthropic] }
+        model: { type: string }
+        cloud_available: { type: boolean }
+        corpus:
+          type: object
+          required: [episode_count, chunk_count]
+          properties:
+            episode_count: { type: integer }
+            chunk_count: { type: integer }
+
+    HealthDeps:
+      type: object
+      required: [db, ollama, agent]
+      properties:
+        db: { type: string, enum: [ok, degraded, down] }
+        ollama: { type: string, enum: [ok, degraded, down] }
+        agent: { type: string, enum: [ok, degraded, down] }
+
+    RetrieveRequest:
+      type: object
+      required: [query, session_id]
+      properties:
+        query: { type: string }
+        session_id: { type: string, format: uuid }
+        k: { type: integer, default: 8 }
+
+    RetrieveResponse:
+      type: object
+      required: [abstained, chunks]
+      properties:
+        abstained: { type: boolean }
+        floor: { type: number }
+        chunks:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/Citation"
+              - type: object
+                required: [text]
+                properties:
+                  text: { type: string }
+
+  securitySchemes:
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+
+paths:
+  /health:
+    get:
+      summary: Liveness
+      operationId: healthLive
+      responses:
+        "200":
+          description: Process is up
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties: { status: { const: ok } }
+
+  /health/deps:
+    get:
+      summary: Dependency status
+      operationId: healthDeps
+      responses:
+        "200":
+          description: Independent status per dependency
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthDeps" }
+
+  /config:
+    get:
+      summary: Active provider, model, and corpus stats
+      operationId: getConfig
+      responses:
+        "200":
+          description: Config snapshot driving the UI provider badge
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigResponse" }
+
+  /sessions:
+    post:
+      summary: Create a session
+      operationId: createSession
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateSessionRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+    get:
+      summary: List sessions, newest first
+      operationId: listSessions
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Paginated session list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Session" }
+                  total: { type: integer }
+
+  /sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Session with full message history and citations
+      operationId: getSession
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionDetail" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    delete:
+      summary: Delete a session and its cascade
+      operationId: deleteSession
+      responses:
+        "204": { description: Deleted }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /sessions/{id}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Send a turn. Streams an SSE response (see contracts/sse-frames.schema.json).
+      operationId: postMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PostMessageRequest" }
+      responses:
+        "200":
+          description: >
+            text/event-stream of typed frames: stage, token, citation,
+            artifact, error, done.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "503":
+          description: Provider unavailable (e.g. Ollama unreachable) — no silent failover
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /chunks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Verbatim chunk text plus episode metadata (serves the citation-expand flow, F2)
+      operationId: getChunk
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChunkDetail" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /artifacts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Fetch a stored artifact
+      operationId: getArtifact
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /internal/retrieve:
+    post:
+      summary: >
+        Vector search with session boost and relevance floor. Caller: agent
+        service only. Not proxied to the browser; Compose-internal network
+        plus a shared-secret header.
+      operationId: internalRetrieve
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RetrieveRequest" }
+      responses:
+        "200":
+          description: Ranked chunks with scores and episode metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RetrieveResponse" }
+        "401":
+          description: Missing or invalid internal token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }

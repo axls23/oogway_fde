@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# Env / secrets
+.env
+.env.local
+*.pem
+
+# Build tooling downloaded locally (not part of the deliverable)
+.tools/
+
+# Corpus (fetched via `make corpus`, not committed — large & externally sourced)
+ingest/corpus/
+
+# Postgres data volume bind-mounts, if any
+pgdata/
+*.sql.gz.bak
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Pi session audit trail — mounted volume, not source
+agent/.pi/sessions/
+
+# Logs
+*.log
