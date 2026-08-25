@@ -2,9 +2,10 @@
 
 Built against `../contracts/openapi.yaml` (generate or hand-write a typed
 client matching it exactly) and `../contracts/sse-frames.schema.json` (the
-frame parser must switch on the same `event:` names). See `../design.md`
-for UI/UX principles, states, and accessibility requirements — this file
-covers only structural and behavioral constraints.
+frame parser must switch on the same `event:` names). See
+`../docs/deliverables/design.md` for UI/UX principles, states, and
+accessibility requirements — this file covers only structural and
+behavioral constraints.
 
 Root invariants in `../CLAUDE.md` apply, particularly: the artifact iframe
 must use `sandbox="allow-scripts"` and must never add `allow-same-origin`.

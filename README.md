@@ -4,9 +4,9 @@ A grounded conversational assistant over [Lenny's Podcast](https://www.lennysnew
 transcripts: cited Q&A, a Ship 30 for 30–style essay skill, and an in-app
 Artifact Viewer for generated Markdown/HTML — built as a Forward Deployed
 Engineer take-home. Full requirements, discovery brief, and acceptance
-criteria are in [`PRD.md`](PRD.md); system design in
-[`architecture.md`](architecture.md); UI/UX rationale in
-[`design.md`](design.md).
+criteria are in [`PRD.md`](docs/deliverables/PRD.md); system design in
+[`architecture.md`](docs/deliverables/architecture.md); UI/UX rationale in
+[`design.md`](docs/deliverables/design.md).
 
 > **Status note (fill in before submission):** this README documents the
 > intended run path per `docker-compose.yml` and each package's own docs.
@@ -256,9 +256,10 @@ agent-transcripts/            redacted coding-agent session logs (deliverable #6
 
 | Deliverable | Location |
 |---|---|
-| PRD | [`PRD.md`](PRD.md) |
-| design.md | [`design.md`](design.md) |
-| architecture.md | [`architecture.md`](architecture.md) |
+| PRD | [`PRD.md`](docs/deliverables/PRD.md) |
+| design.md | [`design.md`](docs/deliverables/design.md) |
+| architecture.md | [`architecture.md`](docs/deliverables/architecture.md) |
+| Take-home assignment brief | [`docs/Forward_Deployed_Engineer_Take_Home_Assignment.docx.md`](docs/Forward_Deployed_Engineer_Take_Home_Assignment.docx.md) |
 | Agent transcripts | [`agent-transcripts/`](agent-transcripts/) |
 | Tests + manual test plan | `*/tests/`, [`tests/eval/`](tests/eval/), `tests/manual-test-plan.md` |
 | Demo video | *(link here once recorded and uploaded — see PRD §6 deliverable #8)* |

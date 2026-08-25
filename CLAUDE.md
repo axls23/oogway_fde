@@ -1,10 +1,11 @@
 # CLAUDE.md — root invariants
 
 This file, and the one in each package (`api/`, `agent/`, `web/`, `ingest/`),
-is the mechanism by which the decisions in `architecture.md` survive contact
-with a code generator. Read `PRD.md` and `architecture.md` before writing
-code in this repository. `contracts/` is the source of truth for schemas and
-API shapes — derive code from it, don't invent alongside it.
+is the mechanism by which the decisions in `docs/deliverables/architecture.md`
+survive contact with a code generator. Read `docs/deliverables/PRD.md` and
+`docs/deliverables/architecture.md` before writing code in this repository.
+`contracts/` is the source of truth for schemas and API shapes — derive code
+from it, don't invent alongside it.
 
 ## Invariants that must never be refactored away
 
