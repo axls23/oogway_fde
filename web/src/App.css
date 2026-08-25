@@ -6,46 +6,66 @@
 
 .app__header {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.6rem 1rem;
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  min-height: 3.1rem;
+  border-bottom: 2px solid var(--border);
   flex-shrink: 0;
 }
 
 .app__header-left {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: var(--space-2);
   min-width: 0;
+  padding-right: var(--space-4);
+  border-right: 2px solid var(--border);
+}
+
+.app__header-left::before {
+  content: "";
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 .app__header-right {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-3);
   flex-shrink: 0;
 }
 
 .app__settings-toggle {
-  font-size: 0.8rem;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--fg-muted);
   background: none;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.3em 0.75em;
+  border-radius: var(--radius);
+  padding: 0.45em 0.85em;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .app__settings-toggle[aria-pressed="true"] {
-  color: var(--accent);
+  color: var(--accent-fg);
+  background: var(--accent);
   border-color: var(--accent);
 }
 
 .app__name {
-  font-weight: 700;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: -0.015em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -54,7 +74,7 @@
 .app__drawer-toggle {
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius);
   padding: 0.35rem 0.55rem;
   font-size: 1.1rem;
 }
@@ -62,12 +82,12 @@
 .app__body {
   flex: 1;
   display: grid;
-  grid-template-columns: 18rem 1fr;
+  grid-template-columns: 16rem 1fr;
   min-height: 0;
 }
 
 .app__sessions {
-  border-right: 1px solid var(--border);
+  border-right: 2px solid var(--border);
   min-height: 0;
   overflow: hidden;
 }
@@ -84,8 +104,8 @@
   justify-content: center;
   height: 100%;
   text-align: center;
-  gap: 0.75rem;
-  padding: 2rem;
+  gap: var(--space-3);
+  padding: var(--space-8);
   color: var(--fg-muted);
 }
 
@@ -99,9 +119,14 @@
   background: var(--accent);
   color: var(--accent-fg);
   border: none;
-  border-radius: 0.6rem;
+  border-radius: var(--radius);
   padding: 0.6rem 1.1rem;
-  font-weight: 700;
+  font-family: var(--font-heading);
+  font-weight: 800;
+}
+
+.app__welcome-cta:hover {
+  background: var(--accent-hover);
 }
 
 .workspace {
@@ -137,17 +162,17 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 18rem;
+    width: 16rem;
     max-width: 85vw;
     z-index: 50;
     background: var(--bg);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
+    border-right: 2px solid var(--border);
   }
 
   .app__scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.35);
+    background: color-mix(in srgb, var(--fg) 40%, transparent);
     z-index: 40;
   }
 
@@ -166,7 +191,7 @@
 
 .mobile-tabs {
   display: flex;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -175,7 +200,10 @@
   background: transparent;
   border: none;
   padding: 0.65rem;
-  font-weight: 600;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
   color: var(--fg-muted);
   border-bottom: 2px solid transparent;
 }

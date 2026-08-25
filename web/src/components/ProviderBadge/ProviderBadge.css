@@ -1,22 +1,21 @@
 .provider-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.4em;
-  font-size: 0.85rem;
-  font-weight: 600;
+  gap: 0.5em;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   color: var(--badge-fg);
   background: var(--badge-bg);
   border: 1px solid var(--badge-border);
-  border-radius: 999px;
-  padding: 0.3em 0.75em;
+  border-radius: var(--radius);
+  padding: 0.4em 0.7em;
   line-height: 1.2;
   white-space: nowrap;
 }
 
 .provider-badge__dot {
-  width: 0.55em;
-  height: 0.55em;
-  border-radius: 50%;
+  width: 0.5em;
+  height: 0.5em;
   background: var(--badge-dot);
   flex-shrink: 0;
 }

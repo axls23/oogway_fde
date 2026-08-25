@@ -83,9 +83,6 @@ export function ArtifactViewer({ artifactId, onClose, refreshToken }: ArtifactVi
       <div className="artifact-pane__header">
         <div className="artifact-pane__heading">
           <span className="artifact-pane__title">{artifact?.title ?? "Artifact"}</span>
-          <span className="artifact-pane__sandbox-note">
-            Generated content — sandboxed, scripts run in an isolated context, no network access
-          </span>
         </div>
         <button type="button" className="artifact-pane__close" onClick={onClose} aria-label="Close artifact pane">
           ×
@@ -125,6 +122,22 @@ export function ArtifactViewer({ artifactId, onClose, refreshToken }: ArtifactVi
               </button>
             </div>
           </div>
+
+          <div className="artifact-pane__sandbox-bar">
+            <span>Generated content — sandboxed</span>
+            <span>scripts run in an isolated context · no network access</span>
+          </div>
+
+          {artifact.sanitized && (
+            <div className="artifact-pane__sanitized-note" role="status">
+              <span aria-hidden="true">⚠</span>
+              <div>
+                <strong>Sanitized before rendering</strong>
+                Disallowed elements were stripped server-side before this artifact was stored. What renders
+                below is what's left.
+              </div>
+            </div>
+          )}
 
           <div className="artifact-pane__body">
             {tab === "preview" ? (

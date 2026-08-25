@@ -262,10 +262,18 @@ export async function createLennySession(env: SessionEnv, opts: CreateSessionOpt
     cwd: opts.cwd,
     agentDir,
     model,
-    thinkingLevel: "off",
+    // LOCAL EXPERIMENT — NOT COMMITTED. Was "off". qwen2.5:7b-instruct has
+    // no native thinking mode (unlike Claude or a QwQ/Qwen3-thinking
+    // variant), so this may be a no-op through Ollama — testing to see.
+    thinkingLevel: "medium",
     modelRuntime,
     resourceLoader: loader,
-    noTools: "builtin", // containment control, §8.5 — never relax this.
+    // LOCAL EXPERIMENT — NOT COMMITTED. noTools: "builtin" removed to enable
+    // the SDK's default builtin tools (read, bash, edit, write) alongside
+    // customTools below. This is root CLAUDE.md invariant #4 and
+    // architecture.md §8.5's containment control, deliberately disabled here
+    // for local testing only — do not `git add` this file until it's
+    // reverted, and do not carry this into a commit or push.
     customTools: [searchTranscripts, createArtifact, editArtifact],
     sessionManager: SessionManager.create(opts.cwd), // JSONL audit trail under cwd/.pi/sessions (ADR-002)
     settingsManager: SettingsManager.inMemory({

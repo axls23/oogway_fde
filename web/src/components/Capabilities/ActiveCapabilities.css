@@ -5,14 +5,13 @@
 .active-capabilities__trigger {
   display: inline-flex;
   align-items: center;
-  gap: 0.4em;
-  font-size: 0.85rem;
-  font-weight: 600;
+  gap: 0.5em;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   color: var(--badge-fg);
   background: var(--badge-bg);
   border: 1px solid var(--badge-border);
-  border-radius: 999px;
-  padding: 0.3em 0.75em;
+  padding: 0.4em 0.7em;
   line-height: 1.2;
   white-space: nowrap;
   cursor: pointer;
@@ -24,9 +23,8 @@
 }
 
 .active-capabilities__dot {
-  width: 0.55em;
-  height: 0.55em;
-  border-radius: 50%;
+  width: 0.5em;
+  height: 0.5em;
   background: var(--badge-dot);
   flex-shrink: 0;
 }
@@ -40,11 +38,9 @@
   max-width: 90vw;
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--bg-elevated);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
   padding: 0.9rem 1rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
 
 .active-capabilities__panel section + section {
@@ -52,9 +48,11 @@
 }
 
 .active-capabilities__panel h3 {
-  font-size: 0.75rem;
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--fg-muted);
   margin: 0 0 0.4rem;
 }
@@ -75,12 +73,11 @@
 }
 
 .active-capabilities__pill {
-  font-size: 0.78rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
   color: var(--chip-fg);
   background: var(--chip-bg);
   border: 1px solid var(--chip-border);
-  border-radius: 999px;
   padding: 0.15em 0.6em;
 }
 

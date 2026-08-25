@@ -14,14 +14,13 @@
 .citation__chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.4em;
+  gap: 7px;
   background: var(--chip-bg);
   color: var(--chip-fg);
   border: 1px solid var(--chip-border);
-  border-radius: 999px;
-  padding: 0.25em 0.7em 0.25em 0.4em;
-  font-size: 0.82rem;
-  font-weight: 500;
+  padding: 5px 10px 5px 6px;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
   max-width: 22rem;
   text-align: left;
 }
@@ -34,38 +33,37 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.2em;
-  height: 1.2em;
-  border-radius: 50%;
-  background: var(--chip-border);
+  min-width: 1.1em;
+  font-family: var(--font-heading);
+  font-weight: 800;
   color: var(--chip-fg);
-  font-size: 0.72em;
-  font-weight: 700;
+  font-size: 0.85em;
   flex-shrink: 0;
 }
 
 .citation__panel {
   margin-top: 0.4rem;
-  padding: 0.75rem 0.9rem;
-  background: var(--bg-elevated);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0.6rem;
   max-width: 36rem;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
 }
 
 .citation__snippet {
   margin: 0 0 0.5rem 0;
-  padding: 0;
+  padding-left: var(--space-3);
   border: none;
+  border-left: 2px solid var(--accent);
   color: var(--fg);
   white-space: pre-wrap;
 }
 
 .citation__link {
-  color: var(--accent);
+  color: var(--fg);
   font-weight: 600;
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .citation__status {
@@ -83,12 +81,10 @@
   bottom: 0;
   z-index: 40;
   background: var(--bg);
-  border-top: 1px solid var(--border);
-  border-radius: 1rem 1rem 0 0;
+  border-top: 2px solid var(--border);
   padding: 1rem 1rem 1.5rem;
   max-height: 60vh;
   overflow-y: auto;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
 }
 
 .citation__sheet-close {
@@ -96,7 +92,6 @@
   margin: 0 0 0.75rem auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 999px;
   padding: 0.3em 0.9em;
   font-size: 0.85rem;
   font-weight: 600;
