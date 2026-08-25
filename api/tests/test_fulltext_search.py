@@ -10,7 +10,21 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.retrieval import _top_k_by_fulltext
+from app.services.retrieval import _extract_fulltext_terms, _top_k_by_fulltext
+
+
+def test_extract_fulltext_terms_or_joins_content_words() -> None:
+    # _normalize_query_tokens returns a set (order not guaranteed, and
+    # deliberately not depended on here -- OR is commutative), so this
+    # checks the term set and the join syntax separately rather than one
+    # exact-order string.
+    terms = _extract_fulltext_terms("What do people say about finding product-market fit?")
+    parts = terms.split(" OR ")
+    assert set(parts) == {"finding", "product-market", "fit"}
+
+
+def test_extract_fulltext_terms_falls_back_to_raw_query_when_all_stopwords() -> None:
+    assert _extract_fulltext_terms("what is the") == "what is the"
 
 
 async def _seed_episode_and_chunks(db: AsyncSession) -> None:

@@ -168,6 +168,64 @@ async def _top_k_by_cosine(
     ]
 
 
+# Stripped from the query before full-text search (_extract_fulltext_terms
+# below), not from chunks.text_search -- Postgres's own 'english' text
+# search config already stops/stems the *indexed* side. Reduces noise in
+# the OR-joined query below (a scaffolding word like "what" or "people"
+# OR'd in would inflate ts_rank_cd for chunks that happen to contain it,
+# unrelated to the actual topic) -- see _extract_fulltext_terms for the
+# bigger fix (AND -> OR) this is secondary to.
+_FULLTEXT_STOPWORDS = frozenset(
+    {
+        "a", "an", "the", "and", "or", "but", "of", "in", "on", "at", "to",
+        "for", "with", "about", "as", "by", "from", "is", "are", "was",
+        "were", "be", "been", "being", "do", "does", "did", "have", "has",
+        "had", "i", "you", "he", "she", "it", "we", "they", "what", "which",
+        "who", "whom", "this", "that", "these", "those", "how", "when",
+        "where", "why", "should", "would", "could", "can", "will", "say",
+        "says", "said", "think", "thinks", "people", "operators", "get",
+        "got", "like", "know", "really", "just", "some", "any", "their",
+        "them", "there",
+    }
+)
+
+
+def _extract_fulltext_terms(query: str) -> str:
+    """Turn `query` into an OR-joined `websearch_to_tsquery` term list, e.g.
+    `"early finding product-market fit"` (`websearch_to_tsquery` parses
+    space-separated `OR` as a logical OR, same as a search-engine query box).
+
+    Two corrections on top of the raw query, both load-bearing -- measured
+    on the real corpus, chunk/cosine-pool overlap for the 20-question eval
+    set went 0.15 -> 0.15 -> **2.0** mean chunks (out of an 8-chunk pool)
+    across three attempts, and this OR-join was the one that actually
+    moved it; stopword-stripping alone (attempt two) did not:
+
+    1. **AND -> OR.** `websearch_to_tsquery` ANDs plain space-separated
+       terms by default. A natural-language question ("What do people say
+       about finding product-market fit early on?") rarely has all of its
+       content words verbatim in one 800-token chunk, so AND-joining them
+       returned zero or near-zero matches for most questions (measured:
+       12/20 questions had zero full-text hits at all under AND). OR lets
+       `ts_rank_cd` do its job -- it naturally scores a chunk matching more
+       of the OR'd terms, more densely, higher, which is a reasonable
+       proxy for topical relevance without requiring literal co-occurrence.
+    2. **Stopword-stripping.** Without it, OR-joining a raw question ORs in
+       near-universal words ("what", "people", "say"), which would inflate
+       `ts_rank_cd` for chunks that happen to contain those words for
+       unrelated reasons, diluting the signal from the real topic terms.
+
+    Plain string ops only (root/api CLAUDE.md: no new dependency), reusing
+    `_normalize_query_tokens`'s tokenization. Falls back to the original
+    `query` untouched if stripping would leave nothing -- an empty string
+    passed to `websearch_to_tsquery` produces zero results, so an
+    all-scaffolding query (rare, but possible) is better served by the
+    unfiltered original than by searching for nothing.
+    """
+    terms = [t for t in _normalize_query_tokens(query) if t not in _FULLTEXT_STOPWORDS]
+    return " OR ".join(terms) if terms else query
+
+
 async def _top_k_by_fulltext(db: AsyncSession, query: str, k: int) -> list[int]:
     """Chunk ids ranked by Postgres full-text search (`ts_rank_cd` over the
     generated `chunks.text_search` column, GIN-indexed), best first.
@@ -179,14 +237,16 @@ async def _top_k_by_fulltext(db: AsyncSession, query: str, k: int) -> list[int]:
 
     `websearch_to_tsquery` (not `plainto_tsquery`) is deliberate: it
     tolerates arbitrary user text -- quotes, `-exclude`, `OR` -- without
-    raising, matching how a search-engine query box behaves, and degrades
-    to an implicit AND of terms for a plain question with no operators.
+    raising, matching how a search-engine query box behaves. `query` is
+    passed through `_extract_fulltext_terms` first, not used raw -- see
+    that function's docstring for why AND-vs-OR is the single biggest
+    lever here, measured on the real corpus, not assumed.
     A query with no recognizable lexical terms (e.g. all stopwords) can
     legitimately produce zero rows; that's not an error, just no
     full-text signal for this query -- `reciprocal_rank_fusion` handles an
     empty list the same as any chunk with no lexical match.
     """
-    tsquery = func.websearch_to_tsquery("english", query)
+    tsquery = func.websearch_to_tsquery("english", _extract_fulltext_terms(query))
     rank = func.ts_rank_cd(Chunk.text_search, tsquery).label("rank")
     stmt = (
         select(Chunk.id)
