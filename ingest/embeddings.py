@@ -22,6 +22,13 @@ logger = logging.getLogger("ingest.embeddings")
 
 EMBED_DIMENSIONS = 768  # must match `vector(768)` in contracts/schema.sql
 
+# Nomic's asymmetric-retrieval task instruction for corpus-side (indexed)
+# text. Prepended only to the string sent to Ollama's /api/embed -- the
+# caller's texts (and, transitively, the stored `chunks.text` column) are
+# never mutated. See api/app/services/retrieval.py's SEARCH_QUERY_PREFIX
+# for the query-side counterpart.
+SEARCH_DOCUMENT_PREFIX = "search_document: "
+
 
 class EmbeddingError(RuntimeError):
     """Raised when Ollama is unreachable or returns something we can't use."""
@@ -75,10 +82,11 @@ class OllamaEmbedder:
         (timeouts, connection resets) up to `max_retries` times with a
         short linear backoff before giving up."""
         url = f"{self.base_url}/api/embed"
+        prefixed_batch = [f"{SEARCH_DOCUMENT_PREFIX}{text}" for text in batch]
         last_exc: httpx.HTTPError | None = None
         for attempt in range(self.max_retries + 1):
             try:
-                resp = await client.post(url, json={"model": self.model, "input": batch})
+                resp = await client.post(url, json={"model": self.model, "input": prefixed_batch})
                 resp.raise_for_status()
                 break
             except httpx.HTTPError as exc:

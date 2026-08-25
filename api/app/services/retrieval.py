@@ -33,6 +33,13 @@ from app.obs.logging import Stopwatch, log_event
 GUEST_NAME_BOOST = 0.03
 GUEST_NAME_MIN_TOKEN_LEN = 4
 
+# Nomic's asymmetric-retrieval task instruction for the query side. Prepended
+# only to the string sent to Ollama's embeddings endpoint below -- `query`
+# itself (and anything derived from it elsewhere, e.g. the persisted
+# messages.rewritten_query) is never mutated. See ingest/embeddings.py's
+# SEARCH_DOCUMENT_PREFIX for the corpus-side counterpart.
+SEARCH_QUERY_PREFIX = "search_query: "
+
 
 @dataclass
 class ScoredChunk:
@@ -63,7 +70,11 @@ async def embed_query(query: str, settings: Settings, trace_id: str) -> list[flo
     try:
         async with httpx.AsyncClient(timeout=settings.model_timeout_s) as client:
             resp = await client.post(
-                url, json={"model": settings.embed_model, "prompt": query}
+                url,
+                json={
+                    "model": settings.embed_model,
+                    "prompt": f"{SEARCH_QUERY_PREFIX}{query}",
+                },
             )
             resp.raise_for_status()
             data = resp.json()
