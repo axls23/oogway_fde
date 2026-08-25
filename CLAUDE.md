@@ -68,6 +68,38 @@ API shapes — derive code from it, don't invent alongside it.
 | Pi SDK API reference | `docs/vendor/pi-sdk.md` — treat as the only authority; verified against `@earendil-works/pi-coding-agent@0.84.3` on npm, 2026-08-24 |
 | Ship 30 writing principles | `agent/.pi/skills/ship30-essay/SKILL.md` |
 
+## Worktree agent resume logs
+
+Any agent working inside a `.claude/worktrees/*` checkout (whether spawned
+by a coordinator session or working solo) must maintain a `RESUME.md` at
+the root of its own worktree, kept current as work progresses rather than
+written once at the end. `.claude/worktrees/` is gitignored, so this file
+is automatically excluded from every PR — never `git add` it anyway.
+
+Purpose: if the session is cut off (token/context limit, crash, killed
+process) a fresh agent — or the same agent after a compaction — can pick
+the unit back up from disk instead of from conversation memory. Update it
+at minimum: right after deciding the approach, before/after any commit,
+and before finishing (or handing off). Cover:
+
+- **Unit**: one line, what task this worktree exists for.
+- **Worktree / branch**: path, branch name, base commit, PR URL if one
+  exists (check `gh pr list --head <branch>` before assuming there isn't
+  one — a stale worktree lock or a dead session can leave a PR open with
+  no local trace of having opened it).
+- **Status**: one line — not started / in progress / done-pending-review /
+  blocked (and on what).
+- **What's done, in order**, key decisions and why, files touched,
+  verification already run (tests/lint/type-check/gate scripts) with
+  actual results, not just "passed".
+- **Next steps** if picked up cold, ordered, concrete enough to act on
+  without re-deriving context.
+
+Don't reconstruct another worktree's RESUME.md from guessed intent — if
+resuming one that's missing this file or it looks stale, ground the
+handoff in observable state (`git log`, `git status`, `git diff`, `gh pr
+list`) rather than inventing what a prior session was thinking.
+
 ## Commands
 
 `make up` starts everything. `make check` runs every CI gate. `make test`
