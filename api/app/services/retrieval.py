@@ -1,4 +1,5 @@
-"""Retrieval pipeline: embed -> top-k -> session boost -> relevance floor -> top 4.
+"""Retrieval pipeline: embed -> top-k -> session boost -> guest-name boost ->
+relevance floor -> top 4.
 
 architecture.md §7 / api/CLAUDE.md: step 5, the relevance floor, MUST be a
 plain Python `if` guard evaluated before any model call — never a prompt
@@ -24,6 +25,13 @@ from app.config import Settings
 from app.db.models import Chunk, Citation, Episode, Message
 from app.errors import ApiError, provider_unreachable
 from app.obs.logging import Stopwatch, log_event
+
+# Guest-name boost isn't (yet) env-configurable like SESSION_BOOST/
+# TOP_K_DEFAULT/RETURN_N (Settings.session_boost/top_k_default/return_n) —
+# no task has asked for that, and these two are cheap to change here if
+# that ever comes up.
+GUEST_NAME_BOOST = 0.03
+GUEST_NAME_MIN_TOKEN_LEN = 4
 
 
 @dataclass
@@ -147,6 +155,85 @@ def apply_session_boost(
     return chunks
 
 
+def _normalize_query_tokens(query: str) -> set[str]:
+    """Lowercase, whitespace-split query into a set of punctuation-stripped
+    word tokens, for exact (not substring) token matching.
+
+    Plain string ops only (root/api CLAUDE.md: no new dependency, no regex
+    library) — `.lower()`, `.split()`, `.strip()` on a fixed punctuation set.
+    """
+    tokens: set[str] = set()
+    for word in query.lower().split():
+        stripped = word.strip(".,!?;:'\"()[]{}")
+        if stripped:
+            tokens.add(stripped)
+    return tokens
+
+
+def _guest_matches_query(guest: str, query: str) -> bool:
+    """True if `guest`'s full name, or one distinctive token of it, is
+    referenced in `query`.
+
+    Two match modes:
+    - Full (multi-word) name as a substring of the (lowercased) query —
+      handles "what did Shreyas Doshi say about onboarding?" directly.
+      Only used when the guest's name has more than one word: a two-plus
+      word phrase is distinctive enough to match as a raw substring
+      without a length guard.
+    - A single name token (e.g. just the last name, "Doshi") matched as a
+      *whole word* against the query's own tokens — handles "what did
+      Doshi say about onboarding?" without requiring the full name. This
+      is also the only path used for a guest whose full name is itself a
+      single word, so a short one-word name doesn't skip the length guard
+      by going through the substring branch instead.
+
+    Whole-word token matching (not substring-in-query) is deliberate: a
+    substring check would let a guest named e.g. "Ed Baker" spuriously
+    match any query mentioning "bakery" ("baker" is a substring of
+    "bakery"), boosting an unrelated chunk. Tokens shorter than
+    GUEST_NAME_MIN_TOKEN_LEN are skipped entirely for the same reason in
+    the other direction: a short, common fragment (e.g. "Al", "Ed", "Jo")
+    is too likely to collide with an ordinary word or an unrelated guest's
+    initials to be treated as a distinctive signal.
+    """
+    guest_lower = guest.lower().strip()
+    if not guest_lower:
+        return False
+    name_tokens = guest_lower.split()
+    if len(name_tokens) > 1 and guest_lower in query.lower():
+        return True
+    query_tokens = _normalize_query_tokens(query)
+    for name_token in name_tokens:
+        if len(name_token) >= GUEST_NAME_MIN_TOKEN_LEN and name_token in query_tokens:
+            return True
+    return False
+
+
+def apply_guest_boost(chunks: list[ScoredChunk], query: str) -> list[ScoredChunk]:
+    """+GUEST_NAME_BOOST to chunks whose episode guest is named in `query`.
+
+    Mirrors apply_session_boost's shape exactly: a flat additive bump,
+    capped at score 1.0, applied per-chunk based on metadata already
+    joined onto the candidate (episode.guest here, episode_id-in-session
+    there) — never a separate scoring path the floor doesn't see.
+
+    GUEST_NAME_BOOST (0.03) is deliberately smaller than the default
+    session boost (0.05): "this guest was already cited earlier in this
+    session" is a session-scoped fact with no ambiguity, whereas "the
+    guest's name (or a token of it) appears in the query text" is a
+    noisier, string-match signal — the query could mention a guest's name
+    in passing, in a comparison ("more direct than Shreyas Doshi's usual
+    take"), or match a distinctive-but-coincidental token. A smaller cap
+    keeps this boost unable to outweigh a materially stronger embedding
+    match on its own, while still being enough to break near-ties in favor
+    of the explicitly-named guest's episode.
+    """
+    for c in chunks:
+        if _guest_matches_query(c.guest, query):
+            c.score = min(1.0, c.score + GUEST_NAME_BOOST)
+    return chunks
+
+
 def apply_floor(
     chunks: list[ScoredChunk], floor: float, return_n: int = 4
 ) -> RetrieveResult:
@@ -194,6 +281,7 @@ async def retrieve(
         candidates = await _top_k_by_cosine(db, embedding, max(k, return_n))
         boosted_ids = await _previously_cited_episode_ids(db, session_id)
         candidates = apply_session_boost(candidates, boosted_ids, settings.session_boost)
+        candidates = apply_guest_boost(candidates, query)
     result = apply_floor(candidates, settings.retrieval_floor, return_n=return_n)
     log_event(
         "retrieve",
