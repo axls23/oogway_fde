@@ -37,6 +37,9 @@ class Settings(BaseSettings):
 
     # ── Retrieval tuning ──────────────────────────────────────────────────
     retrieval_floor: float = 0.45
+    top_k_default: int = 8
+    return_n: int = 4
+    session_boost: float = 0.05
 
     # ── Internal service auth ────────────────────────────────────────────
     agent_internal_token: str = "dev-local-only-change-me"

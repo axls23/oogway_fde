@@ -25,10 +25,6 @@ from app.db.models import Chunk, Citation, Episode, Message
 from app.errors import ApiError, provider_unreachable
 from app.obs.logging import Stopwatch, log_event
 
-SESSION_BOOST = 0.05
-TOP_K_DEFAULT = 8
-RETURN_N = 4
-
 
 @dataclass
 class ScoredChunk:
@@ -131,24 +127,28 @@ async def _top_k_by_cosine(
 
 
 def apply_session_boost(
-    chunks: list[ScoredChunk], boosted_episode_ids: set[int]
+    chunks: list[ScoredChunk],
+    boosted_episode_ids: set[int],
+    boost: float = 0.05,
 ) -> list[ScoredChunk]:
-    """+SESSION_BOOST to chunks from episodes already cited this session.
+    """+boost to chunks from episodes already cited this session.
 
     Capped at score 1.0 (cosine similarity's ceiling) so the boost can
     never invert a strong new-topic match below a weak previously-cited
-    one by more than SESSION_BOOST — a genuine topic change can still
-    out-rank a boosted stale episode as long as its unboosted score beats
-    the boosted one by more than SESSION_BOOST.
+    one by more than `boost` — a genuine topic change can still out-rank a
+    boosted stale episode as long as its unboosted score beats the boosted
+    one by more than `boost`. `boost` defaults to the historical hardcoded
+    value (0.05); callers going through `retrieve()` get it from
+    `Settings.session_boost` (env var `SESSION_BOOST`) instead.
     """
     for c in chunks:
         if c.episode_id in boosted_episode_ids:
-            c.score = min(1.0, c.score + SESSION_BOOST)
+            c.score = min(1.0, c.score + boost)
     return chunks
 
 
 def apply_floor(
-    chunks: list[ScoredChunk], floor: float, return_n: int = RETURN_N
+    chunks: list[ScoredChunk], floor: float, return_n: int = 4
 ) -> RetrieveResult:
     """The relevance floor. Plain Python `if`, not a prompt instruction.
 
@@ -168,23 +168,32 @@ async def retrieve(
     query: str,
     session_id: uuid.UUID,
     trace_id: str,
-    k: int = TOP_K_DEFAULT,
-    return_n: int = RETURN_N,
+    k: int | None = None,
+    return_n: int | None = None,
 ) -> RetrieveResult:
     """Full pipeline: embed condensed query -> top-k -> boost -> floor -> top N.
 
     Callers are expected to have already condensed the raw user message
     into `query` (see services/condense.py) — this function does not
-    condense, it only embeds and searches. `return_n` defaults to 4 (F1,
-    architecture.md §7); ship30.py passes a larger value for its wider
-    retrieval set (PRD F3 step 2).
+    condense, it only embeds and searches. `k` and `return_n` default to
+    `Settings.top_k_default` / `Settings.return_n` (env vars TOP_K_DEFAULT /
+    RETURN_N, both 8/4 out of the box, architecture.md §7) when the caller
+    doesn't pass an explicit value — routers/internal.py's /internal/retrieve
+    always passes `k` explicitly (from `RetrieveRequest.k`, itself defaulted
+    to 8 by the API contract in contracts/openapi.yaml), so this default only
+    matters for the direct-call path in services/turn.py; ship30.py passes a
+    larger `return_n` for its wider retrieval set (PRD F3 step 2).
     """
+    if k is None:
+        k = settings.top_k_default
+    if return_n is None:
+        return_n = settings.return_n
     with Stopwatch() as sw_embed:
         embedding = await embed_query(query, settings, trace_id)
     with Stopwatch() as sw_search:
         candidates = await _top_k_by_cosine(db, embedding, max(k, return_n))
         boosted_ids = await _previously_cited_episode_ids(db, session_id)
-        candidates = apply_session_boost(candidates, boosted_ids)
+        candidates = apply_session_boost(candidates, boosted_ids, settings.session_boost)
     result = apply_floor(candidates, settings.retrieval_floor, return_n=return_n)
     log_event(
         "retrieve",
