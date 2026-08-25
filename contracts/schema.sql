@@ -31,19 +31,59 @@ CREATE TABLE chunks (
   UNIQUE (episode_id, ordinal)
 );
 
-CREATE INDEX chunks_embedding_idx
-  ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+-- No ANN index on chunks.embedding — intentional, not an oversight.
+--
+-- The seeded corpus (ingest/seed/index.sql.gz) is ~8,531 chunks across 302
+-- episodes. pgvector's own sizing guidance for ivfflat is `lists ~= rows /
+-- 1000` for large corpora, or `sqrt(rows)` as a practical floor for small
+-- ones — either way that's roughly 30-90 lists here, not the 100 this
+-- table shipped with (added back when the corpus was still assumed to be
+-- "tens of thousands" of chunks; see architecture.md §4 design notes and
+-- ADR-003, corrected alongside this change). Oversized `lists` alone would
+-- already hurt recall, but the bigger issue is that nothing in this
+-- codebase ever set `ivfflat.probes` (grepped across api/app/db/session.py,
+-- api/app/services/retrieval.py and api/app/config.py) — every query ran
+-- at pgvector's default `probes = 1`, visiting roughly 1/100th of the
+-- index's clusters. For an ANN index that's not a latency optimization
+-- gone slightly stale, it's a live relevance bug: a true nearest neighbor
+-- whose cluster wasn't the one probed is invisible to `ORDER BY embedding
+-- <=> query LIMIT k`, which can both understate every candidate's score
+-- enough to trip the RETRIEVAL_FLOOR guard into a false abstention
+-- (architecture.md §7, AC3) and silently rank a worse chunk into the top 4
+-- than the corpus actually supports.
+--
+-- Tuned `lists` + `SET LOCAL ivfflat.probes` shrinks that risk but never
+-- removes it, and buys nothing at this scale: without an index, pgvector
+-- falls back to an exact sequential scan — true cosine nearest neighbors
+-- every time, zero tuning surface, zero recall risk. ADR-003 already
+-- assumes single-digit-millisecond retrieval at this corpus size for the
+-- ivfflat case; exact search over ~8.5k rows x 768 dims lands in the same
+-- range, well inside a chat turn's latency budget. So: correctness for
+-- free, one less knob to regress. Revisit if the corpus grows past
+-- roughly 50k-100k chunks (the rough point where ivfflat/HNSW start
+-- winning on latency what they cost in recall) — at that point reintroduce
+-- ivfflat with `lists ~= rows / 1000` and an explicit, tuned
+-- `ivfflat.probes ~= sqrt(lists)` (set per-query in
+-- api/app/services/retrieval.py, not left at the default), validated
+-- against tests/eval/out_of_corpus.yaml and F1's p95 latency budget rather
+-- than assumed.
 CREATE INDEX chunks_episode_idx ON chunks (episode_id);
 
 -- ─── Conversation ──────────────────────────────────────────────────────
 CREATE TABLE sessions (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title       TEXT,
-  provider    TEXT        NOT NULL,
-  model       TEXT        NOT NULL,
-  user_ref    TEXT        NOT NULL DEFAULT 'local',
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title            TEXT,
+  provider         TEXT        NOT NULL,
+  model            TEXT        NOT NULL,
+  user_ref         TEXT        NOT NULL DEFAULT 'local',
+  -- NULL = every discovered skill is active (the default, back-compat
+  -- behavior). A non-NULL array is an explicit allowlist of skill names
+  -- for this session only (root CLAUDE.md invariant #4: skills are plain
+  -- prompt text, so this can never grant a new tool — see agent/src/
+  -- capabilities.ts and agent/src/session.ts's skillsOverride usage).
+  enabled_skills   TEXT[],
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE messages (
@@ -84,6 +124,29 @@ CREATE TABLE artifacts (
   content     TEXT NOT NULL,
   sanitized   BOOLEAN NOT NULL DEFAULT false,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ─── Extension proposals ────────────────────────────────────────────────
+-- A user-submitted DRAFT for a new agent/.pi/extensions/ entry. Recording a
+-- proposal here never makes it live: the agent only ever loads extensions
+-- listed by path+sha256+tools in agent/.pi/extensions/manifest.json
+-- (agent/src/capabilities.ts, root CLAUDE.md invariant #4), and nothing in
+-- this app writes to that file or that directory at runtime. `status` is
+-- review bookkeeping for a human maintainer, not a deployment switch —
+-- 'approved' still requires someone to copy `code` into a committed file,
+-- add the matching manifest.json entry, and pass tools/check_extension_
+-- manifest.py before it can ever run.
+CREATE TABLE extension_proposals (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title         TEXT        NOT NULL,
+  description   TEXT        NOT NULL,
+  tool_names    TEXT[]      NOT NULL,
+  code          TEXT        NOT NULL,
+  sha256        TEXT        NOT NULL, -- of `code`, for a reviewer to paste straight into manifest.json
+  status        TEXT        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  session_id    UUID        REFERENCES sessions(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ─── Operations ────────────────────────────────────────────────────────

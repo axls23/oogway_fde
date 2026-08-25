@@ -1,0 +1,202 @@
+"""Retrieval pipeline: embed -> top-k -> session boost -> relevance floor -> top 4.
+
+architecture.md §7 / api/CLAUDE.md: step 5, the relevance floor, MUST be a
+plain Python `if` guard evaluated before any model call — never a prompt
+instruction. That's the mechanism behind AC3 (5/5 out-of-corpus questions
+must abstain) and it lives in `apply_floor` below, called unconditionally
+before `retrieve()` returns.
+
+This module has no dependency on the agent service or any LLM generation
+call, so it is unit-testable in isolation (api/CLAUDE.md, architecture.md
+§2) by injecting a fake embed function and fake DB rows.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import Settings
+from app.db.models import Chunk, Citation, Episode, Message
+from app.errors import ApiError, provider_unreachable
+from app.obs.logging import Stopwatch, log_event
+
+SESSION_BOOST = 0.05
+TOP_K_DEFAULT = 8
+RETURN_N = 4
+
+
+@dataclass
+class ScoredChunk:
+    chunk_id: int
+    episode_id: int
+    episode_title: str
+    guest: str
+    youtube_url: str | None
+    start_seconds: int | None
+    text: str
+    score: float
+
+
+@dataclass
+class RetrieveResult:
+    abstained: bool
+    floor: float
+    chunks: list[ScoredChunk]
+
+
+async def embed_query(query: str, settings: Settings, trace_id: str) -> list[float]:
+    """Call Ollama's embeddings endpoint. Raises ApiError(503) if unreachable.
+
+    No silent failover, no fallback embedding (root CLAUDE.md forbidden
+    pattern: silent fallback paths) — a failed embed call is a failed turn.
+    """
+    url = f"{settings.ollama_base_url.rstrip('/')}/api/embeddings"
+    try:
+        async with httpx.AsyncClient(timeout=settings.model_timeout_s) as client:
+            resp = await client.post(
+                url, json={"model": settings.embed_model, "prompt": query}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as exc:
+        log_event(
+            "embed_query_failed", trace_id, level=40, error=str(exc), url=url
+        )
+        raise provider_unreachable("ollama", trace_id, detail=str(exc)) from exc
+
+    embedding = data.get("embedding")
+    if not isinstance(embedding, list) or not embedding:
+        raise ApiError(
+            502,
+            "OLLAMA_BAD_RESPONSE",
+            "Ollama returned an embedding response with no vector",
+            trace_id=trace_id,
+        )
+    return [float(x) for x in embedding]
+
+
+async def _previously_cited_episode_ids(
+    db: AsyncSession, session_id: uuid.UUID
+) -> set[int]:
+    stmt = (
+        select(Chunk.episode_id)
+        .join(Citation, Citation.chunk_id == Chunk.id)
+        .join(Message, Message.id == Citation.message_id)
+        .where(Message.session_id == session_id)
+        .distinct()
+    )
+    result = await db.execute(stmt)
+    return {row[0] for row in result.all()}
+
+
+async def _top_k_by_cosine(
+    db: AsyncSession, embedding: list[float], k: int
+) -> list[ScoredChunk]:
+    distance = Chunk.embedding.cosine_distance(embedding).label("distance")
+    stmt = (
+        select(
+            Chunk.id,
+            Chunk.episode_id,
+            Chunk.text,
+            Chunk.start_seconds,
+            Episode.title,
+            Episode.guest,
+            Episode.youtube_url,
+            distance,
+        )
+        .join(Episode, Episode.id == Chunk.episode_id)
+        .order_by(distance)
+        .limit(k)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    return [
+        ScoredChunk(
+            chunk_id=r.id,
+            episode_id=r.episode_id,
+            episode_title=r.title,
+            guest=r.guest,
+            youtube_url=r.youtube_url,
+            start_seconds=r.start_seconds,
+            text=r.text,
+            score=1.0 - float(r.distance),
+        )
+        for r in rows
+    ]
+
+
+def apply_session_boost(
+    chunks: list[ScoredChunk], boosted_episode_ids: set[int]
+) -> list[ScoredChunk]:
+    """+SESSION_BOOST to chunks from episodes already cited this session.
+
+    Capped at score 1.0 (cosine similarity's ceiling) so the boost can
+    never invert a strong new-topic match below a weak previously-cited
+    one by more than SESSION_BOOST — a genuine topic change can still
+    out-rank a boosted stale episode as long as its unboosted score beats
+    the boosted one by more than SESSION_BOOST.
+    """
+    for c in chunks:
+        if c.episode_id in boosted_episode_ids:
+            c.score = min(1.0, c.score + SESSION_BOOST)
+    return chunks
+
+
+def apply_floor(
+    chunks: list[ScoredChunk], floor: float, return_n: int = RETURN_N
+) -> RetrieveResult:
+    """The relevance floor. Plain Python `if`, not a prompt instruction.
+
+    This is the entire mechanism behind AC3: if nothing clears the floor,
+    the request short-circuits with abstained=True and an EMPTY chunk list,
+    before any model ever sees a shred of context.
+    """
+    if not chunks or max(c.score for c in chunks) < floor:
+        return RetrieveResult(abstained=True, floor=floor, chunks=[])
+    ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:return_n]
+    return RetrieveResult(abstained=False, floor=floor, chunks=ranked)
+
+
+async def retrieve(
+    db: AsyncSession,
+    settings: Settings,
+    query: str,
+    session_id: uuid.UUID,
+    trace_id: str,
+    k: int = TOP_K_DEFAULT,
+    return_n: int = RETURN_N,
+) -> RetrieveResult:
+    """Full pipeline: embed condensed query -> top-k -> boost -> floor -> top N.
+
+    Callers are expected to have already condensed the raw user message
+    into `query` (see services/condense.py) — this function does not
+    condense, it only embeds and searches. `return_n` defaults to 4 (F1,
+    architecture.md §7); ship30.py passes a larger value for its wider
+    retrieval set (PRD F3 step 2).
+    """
+    with Stopwatch() as sw_embed:
+        embedding = await embed_query(query, settings, trace_id)
+    with Stopwatch() as sw_search:
+        candidates = await _top_k_by_cosine(db, embedding, max(k, return_n))
+        boosted_ids = await _previously_cited_episode_ids(db, session_id)
+        candidates = apply_session_boost(candidates, boosted_ids)
+    result = apply_floor(candidates, settings.retrieval_floor, return_n=return_n)
+    log_event(
+        "retrieve",
+        trace_id,
+        session_id=str(session_id),
+        duration_ms=sw_embed.ms + sw_search.ms,
+        query=query,
+        k=k,
+        candidate_count=len(candidates),
+        abstained=result.abstained,
+        floor=result.floor,
+        top_scores=[round(c.score, 4) for c in candidates[:k]],
+        returned_chunk_ids=[c.chunk_id for c in result.chunks],
+    )
+    return result
