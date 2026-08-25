@@ -15,6 +15,7 @@ Everything else lives in the documents mapped in §4.
 [Ollama](https://ollama.com), and ~6GB of disk for the two models.
 
 ```bash
+  curl -fsSL https://ollama.com/install.sh | sh
 ./launch-system        # does everything below, and checks each step
 make ingest-subset     # populate the corpus — see the note, this is required
 ```
