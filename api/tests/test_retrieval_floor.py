@@ -14,6 +14,7 @@ from app.services.retrieval import (
     apply_floor,
     apply_guest_boost,
     apply_session_boost,
+    reciprocal_rank_fusion,
 )
 
 
@@ -155,3 +156,47 @@ def test_guest_boost_single_word_short_name_does_not_bypass_length_guard() -> No
     chunks = [_chunk(1, 10, 0.50, guest="Al")]
     boosted = apply_guest_boost(chunks, "actually, I want to talk about pricing")
     assert boosted[0].score == 0.50
+
+
+def test_rrf_promotes_strong_lexical_match_above_a_narrowly_higher_cosine_score() -> None:
+    # Chunk 2 has a slightly better cosine score, but chunk 1 is the #1
+    # full-text match and chunk 2 doesn't appear in the full-text ranking
+    # at all -- RRF should let the lexical signal flip a near-tie.
+    chunks = [_chunk(1, 10, 0.70), _chunk(2, 20, 0.72)]
+    fused = reciprocal_rank_fusion(chunks, fulltext_ranked_ids=[1])
+    assert [c.chunk_id for c in fused] == [1, 2]
+
+
+def test_rrf_falls_back_to_cosine_order_when_fulltext_list_is_empty() -> None:
+    chunks = [_chunk(1, 10, 0.90), _chunk(2, 20, 0.50), _chunk(3, 30, 0.70)]
+    fused = reciprocal_rank_fusion(chunks, fulltext_ranked_ids=[])
+    assert [c.chunk_id for c in fused] == [1, 3, 2]
+
+
+def test_rrf_never_introduces_a_chunk_outside_the_cosine_pool() -> None:
+    # chunk_id 999 is a strong full-text match but was never in the cosine
+    # candidate pool -- it must never appear in the fused output. This is
+    # the property apply_floor's abstain decision depends on staying true.
+    chunks = [_chunk(1, 10, 0.50), _chunk(2, 20, 0.48)]
+    fused = reciprocal_rank_fusion(chunks, fulltext_ranked_ids=[999, 2])
+    assert {c.chunk_id for c in fused} == {1, 2}
+    assert len(fused) == len(chunks)
+
+
+def test_floor_ranked_override_reorders_selection_but_not_the_abstain_decision() -> None:
+    # Abstain decision must still come from chunks' own scores even when a
+    # ranked_override is supplied (simulating what retrieve() does: fuse,
+    # but never let fusion affect whether the system abstains at all).
+    chunks = [_chunk(1, 1, 0.90), _chunk(2, 2, 0.10)]
+    override = [chunks[1], chunks[0]]  # deliberately inverted vs. cosine order
+    result = apply_floor(chunks, floor=0.45, return_n=2, ranked_override=override)
+    assert result.abstained is False  # driven by chunk 1's 0.90, not the override's order
+    assert [c.chunk_id for c in result.chunks] == [2, 1]  # but selection/order is the override's
+
+    # And when every real score is below the floor, an override can't
+    # rescue it into answering -- the abstain gate ignores ranked_override
+    # entirely, by design (reciprocal_rank_fusion's docstring).
+    weak_chunks = [_chunk(1, 1, 0.10), _chunk(2, 2, 0.05)]
+    weak_result = apply_floor(weak_chunks, floor=0.45, ranked_override=list(reversed(weak_chunks)))
+    assert weak_result.abstained is True
+    assert weak_result.chunks == []

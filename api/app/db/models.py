@@ -17,6 +17,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     ForeignKey,
@@ -25,7 +26,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 EMBEDDING_DIM = 768
@@ -69,6 +70,12 @@ class Chunk(Base):
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     start_seconds: Mapped[int | None] = mapped_column(Integer)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
+    # DB-generated (see contracts/schema.sql) -- never written from Python;
+    # mapped read-only so the ORM knows the column exists for raw-SQL
+    # queries (_top_k_by_fulltext) without trying to INSERT/UPDATE it.
+    text_search: Mapped[str] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('english', text)"), nullable=False
+    )
 
     episode: Mapped[Episode] = relationship(back_populates="chunks")
 

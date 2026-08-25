@@ -1,11 +1,16 @@
-"""Retrieval pipeline: embed -> top-k -> session boost -> guest-name boost ->
-relevance floor -> top 4.
+"""Retrieval pipeline: embed -> top-k (cosine + full-text, RRF-fused) ->
+session boost -> guest-name boost -> relevance floor -> top 4.
 
 architecture.md §7 / api/CLAUDE.md: step 5, the relevance floor, MUST be a
 plain Python `if` guard evaluated before any model call — never a prompt
 instruction. That's the mechanism behind AC3 (5/5 out-of-corpus questions
 must abstain) and it lives in `apply_floor` below, called unconditionally
-before `retrieve()` returns.
+before `retrieve()` returns. The floor's abstain decision is computed from
+raw (boosted) cosine similarity only -- `reciprocal_rank_fusion` below can
+re-order which chunks make the final top `return_n`, but it never
+participates in the abstain gate and never introduces a chunk that wasn't
+already a cosine nearest-neighbor candidate. See `reciprocal_rank_fusion`'s
+docstring for why.
 
 This module has no dependency on the agent service or any LLM generation
 call, so it is unit-testable in isolation (api/CLAUDE.md, architecture.md
@@ -14,11 +19,12 @@ call, so it is unit-testable in isolation (api/CLAUDE.md, architecture.md
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -39,6 +45,23 @@ GUEST_NAME_MIN_TOKEN_LEN = 4
 # messages.rewritten_query) is never mutated. See ingest/embeddings.py's
 # SEARCH_DOCUMENT_PREFIX for the corpus-side counterpart.
 SEARCH_QUERY_PREFIX = "search_query: "
+
+# Reciprocal Rank Fusion's smoothing constant -- 60 is the value from the
+# original RRF paper (Cormack et al.) and is what most implementations use
+# unchanged; it controls how quickly a rank's contribution decays (rank 1
+# vs rank 2 matters a lot less at k=60 than it would at k=1). Not exposed
+# as a Settings field: it's a property of the fusion formula, not a
+# product-tunable knob like the boosts above.
+RRF_K = 60
+
+# How many extra candidates the full-text side pulls back relative to the
+# cosine pool size, so a cosine-pool chunk has a good chance of landing
+# *somewhere* in the full-text ranking (and thus getting a non-zero RRF
+# contribution) even when it's not a top full-text match outright. Cheap
+# to raise -- a GIN-indexed full-text query over this corpus is sub-ms
+# regardless of LIMIT -- so this errs generous.
+FULLTEXT_POOL_MULTIPLIER = 4
+FULLTEXT_POOL_MIN = 20
 
 
 @dataclass
@@ -145,6 +168,82 @@ async def _top_k_by_cosine(
     ]
 
 
+async def _top_k_by_fulltext(db: AsyncSession, query: str, k: int) -> list[int]:
+    """Chunk ids ranked by Postgres full-text search (`ts_rank_cd` over the
+    generated `chunks.text_search` column, GIN-indexed), best first.
+
+    Returns bare ids, not `ScoredChunk` -- `ts_rank_cd` isn't on the same
+    scale as cosine similarity (it's an unbounded lexical-density score,
+    not a [0, 1] similarity) and is never treated as a chunk's displayed
+    `score`. This ranking exists solely to feed `reciprocal_rank_fusion`.
+
+    `websearch_to_tsquery` (not `plainto_tsquery`) is deliberate: it
+    tolerates arbitrary user text -- quotes, `-exclude`, `OR` -- without
+    raising, matching how a search-engine query box behaves, and degrades
+    to an implicit AND of terms for a plain question with no operators.
+    A query with no recognizable lexical terms (e.g. all stopwords) can
+    legitimately produce zero rows; that's not an error, just no
+    full-text signal for this query -- `reciprocal_rank_fusion` handles an
+    empty list the same as any chunk with no lexical match.
+    """
+    tsquery = func.websearch_to_tsquery("english", query)
+    rank = func.ts_rank_cd(Chunk.text_search, tsquery).label("rank")
+    stmt = (
+        select(Chunk.id)
+        .where(Chunk.text_search.op("@@")(tsquery))
+        .order_by(rank.desc())
+        .limit(k)
+    )
+    result = await db.execute(stmt)
+    return [row[0] for row in result.all()]
+
+
+def reciprocal_rank_fusion(
+    cosine_ranked: list[ScoredChunk],
+    fulltext_ranked_ids: list[int],
+    rrf_k: int = RRF_K,
+) -> list[ScoredChunk]:
+    """Re-order `cosine_ranked` (any order -- re-sorted here by `.score`
+    descending first) using Reciprocal Rank Fusion against a second
+    ranking, `fulltext_ranked_ids` (best-to-worst chunk ids from
+    `_top_k_by_fulltext`).
+
+    RRF combines two *rankings*, not two *scores*: each chunk's fused
+    score is `sum(1 / (rrf_k + rank))` over every list it appears in
+    (0 if it doesn't appear in a list at all). This sidesteps ever having
+    to normalize cosine similarity and `ts_rank_cd` onto a shared scale --
+    a well-known hard problem, since they measure fundamentally different
+    things -- while still letting a strong lexical match (an exact guest
+    name, a distinctive term the embedding under-weighted) outrank a
+    merely-okay cosine match within the same candidate pool.
+
+    Deliberately restricted to *re-ordering* `cosine_ranked`, never
+    introducing a chunk that isn't already in it: every chunk this
+    function can promote to the top already cleared cosine top-k on its
+    own semantic merits, so a purely-lexical coincidental match (a common
+    word that happens to appear in an off-topic chunk) can win a tiebreak
+    but can never single-handedly surface a semantically unrelated chunk.
+    This is also what keeps `apply_floor`'s abstain decision valid without
+    changes: it's computed from `cosine_ranked`'s own scores, and fusion
+    only touches the order of that same set, never its membership.
+    """
+    fulltext_rank_of = {cid: rank for rank, cid in enumerate(fulltext_ranked_ids, start=1)}
+    cosine_sorted = sorted(cosine_ranked, key=lambda c: c.score, reverse=True)
+
+    def fused_score(chunk: ScoredChunk, cosine_rank: int) -> float:
+        score = 1.0 / (rrf_k + cosine_rank)
+        ft_rank = fulltext_rank_of.get(chunk.chunk_id)
+        if ft_rank is not None:
+            score += 1.0 / (rrf_k + ft_rank)
+        return score
+
+    scored = [
+        (fused_score(chunk, rank), chunk) for rank, chunk in enumerate(cosine_sorted, start=1)
+    ]
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [chunk for _, chunk in scored]
+
+
 def apply_session_boost(
     chunks: list[ScoredChunk],
     boosted_episode_ids: set[int],
@@ -246,18 +345,34 @@ def apply_guest_boost(chunks: list[ScoredChunk], query: str) -> list[ScoredChunk
 
 
 def apply_floor(
-    chunks: list[ScoredChunk], floor: float, return_n: int = 4
+    chunks: list[ScoredChunk],
+    floor: float,
+    return_n: int = 4,
+    ranked_override: list[ScoredChunk] | None = None,
 ) -> RetrieveResult:
     """The relevance floor. Plain Python `if`, not a prompt instruction.
 
     This is the entire mechanism behind AC3: if nothing clears the floor,
     the request short-circuits with abstained=True and an EMPTY chunk list,
-    before any model ever sees a shred of context.
+    before any model ever sees a shred of context. The abstain check always
+    reads `chunks`' own (cosine + boost) scores, regardless of
+    `ranked_override` -- see `reciprocal_rank_fusion`'s docstring for why
+    that's the invariant-safe split.
+
+    `ranked_override`, when given, must be a permutation of `chunks` (e.g.
+    `reciprocal_rank_fusion`'s output) used for the final top-`return_n`
+    selection instead of re-sorting by `.score`. Defaults to `None` so
+    every existing caller (including direct unit tests of this function)
+    keeps the original cosine-score-sorted behavior unchanged.
     """
     if not chunks or max(c.score for c in chunks) < floor:
         return RetrieveResult(abstained=True, floor=floor, chunks=[])
-    ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:return_n]
-    return RetrieveResult(abstained=False, floor=floor, chunks=ranked)
+    ranked = (
+        ranked_override
+        if ranked_override is not None
+        else sorted(chunks, key=lambda c: c.score, reverse=True)
+    )
+    return RetrieveResult(abstained=False, floor=floor, chunks=ranked[:return_n])
 
 
 async def retrieve(
@@ -269,7 +384,8 @@ async def retrieve(
     k: int | None = None,
     return_n: int | None = None,
 ) -> RetrieveResult:
-    """Full pipeline: embed condensed query -> top-k -> boost -> floor -> top N.
+    """Full pipeline: embed condensed query -> cosine + full-text top-k
+    (RRF-fused) -> boost -> floor -> top N.
 
     Callers are expected to have already condensed the raw user message
     into `query` (see services/condense.py) — this function does not
@@ -281,19 +397,32 @@ async def retrieve(
     to 8 by the API contract in contracts/openapi.yaml), so this default only
     matters for the direct-call path in services/turn.py; ship30.py passes a
     larger `return_n` for its wider retrieval set (PRD F3 step 2).
+
+    The full-text query doesn't depend on the embedding, so it runs
+    concurrently with `embed_query` rather than after it -- a real latency
+    win, not just a style choice, since both are independent round trips
+    (one to Ollama, one to Postgres).
     """
     if k is None:
         k = settings.top_k_default
     if return_n is None:
         return_n = settings.return_n
+    pool_k = max(k, return_n)
+    fulltext_k = max(pool_k * FULLTEXT_POOL_MULTIPLIER, FULLTEXT_POOL_MIN)
     with Stopwatch() as sw_embed:
-        embedding = await embed_query(query, settings, trace_id)
+        embedding, fulltext_ids = await asyncio.gather(
+            embed_query(query, settings, trace_id),
+            _top_k_by_fulltext(db, query, fulltext_k),
+        )
     with Stopwatch() as sw_search:
-        candidates = await _top_k_by_cosine(db, embedding, max(k, return_n))
+        candidates = await _top_k_by_cosine(db, embedding, pool_k)
         boosted_ids = await _previously_cited_episode_ids(db, session_id)
         candidates = apply_session_boost(candidates, boosted_ids, settings.session_boost)
         candidates = apply_guest_boost(candidates, query)
-    result = apply_floor(candidates, settings.retrieval_floor, return_n=return_n)
+    fused_order = reciprocal_rank_fusion(candidates, fulltext_ids)
+    result = apply_floor(
+        candidates, settings.retrieval_floor, return_n=return_n, ranked_override=fused_order
+    )
     log_event(
         "retrieve",
         trace_id,
@@ -302,6 +431,7 @@ async def retrieve(
         query=query,
         k=k,
         candidate_count=len(candidates),
+        fulltext_candidate_count=len(fulltext_ids),
         abstained=result.abstained,
         floor=result.floor,
         top_scores=[round(c.score, 4) for c in candidates[:k]],

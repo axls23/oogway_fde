@@ -28,8 +28,16 @@ CREATE TABLE chunks (
   token_count    INTEGER     NOT NULL,
   start_seconds  INTEGER,    -- nearest preceding speaker-turn timestamp; NULL if unparseable
   embedding      vector(768) NOT NULL,
+  -- Lexical/full-text side of hybrid retrieval (api/app/services/retrieval.py
+  -- _top_k_by_fulltext), fused with vector search via reciprocal rank fusion.
+  -- Generated + stored so it's indexed and searchable without recomputing
+  -- to_tsvector() per query; Postgres keeps it in sync with `text`
+  -- automatically on insert/update, ingest never writes to it directly.
+  text_search    TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', text)) STORED,
   UNIQUE (episode_id, ordinal)
 );
+
+CREATE INDEX chunks_text_search_idx ON chunks USING GIN (text_search);
 
 -- No ANN index on chunks.embedding — intentional, not an oversight.
 --
