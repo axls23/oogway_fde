@@ -34,6 +34,25 @@ seed/index.sql.gz   pre-built dump restored on first `api` boot (AC1) — see ..
 - `--episodes subset` selects via the corpus repo's own `index/` topic
   files (product management, growth strategy, PMF, leadership) per PRD §5's
   conditional scope cut — document in the ingest log which set ran.
+- `embeddings.py` prepends Nomic's `"search_document: "` task-instruction
+  prefix to each chunk's text before it's sent to Ollama's `/api/embed` —
+  the corpus side of nomic-embed-text's documented asymmetric-retrieval
+  convention (query side: `api/app/services/retrieval.py`'s
+  `"search_query: "` prefix on `embed_query()`). The prefix is applied only
+  to the string handed to the embedding call; `chunks.text` in Postgres,
+  and everything downstream of it (citations, `/chunks/{id}`), stays raw
+  and unprefixed.
+  **This is a chunk-text-preprocessing change, and like any such change it
+  only takes effect for embeddings computed after it ships.** Existing rows
+  — including everything in `seed/index.sql.gz` — were embedded without the
+  prefix, so on any deployment that already has data, mixing prefixed
+  queries against an unprefixed (or partially prefixed) index degrades
+  retrieval instead of improving it: **a full re-ingest (`make ingest`,
+  or `python3 ingest.py --episodes all`) is required before this — or any
+  future chunk-preprocessing change — takes effect.** `seed/index.sql.gz`
+  itself must be regenerated from a from-scratch ingest run for new
+  environments to pick up the prefix too; until it's regenerated, treat it
+  as stale.
 
 ## Commands
 
