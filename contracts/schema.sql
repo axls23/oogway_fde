@@ -37,13 +37,19 @@ CREATE INDEX chunks_episode_idx ON chunks (episode_id);
 
 -- ─── Conversation ──────────────────────────────────────────────────────
 CREATE TABLE sessions (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title       TEXT,
-  provider    TEXT        NOT NULL,
-  model       TEXT        NOT NULL,
-  user_ref    TEXT        NOT NULL DEFAULT 'local',
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title            TEXT,
+  provider         TEXT        NOT NULL,
+  model            TEXT        NOT NULL,
+  user_ref         TEXT        NOT NULL DEFAULT 'local',
+  -- NULL = every discovered skill is active (the default, back-compat
+  -- behavior). A non-NULL array is an explicit allowlist of skill names
+  -- for this session only (root CLAUDE.md invariant #4: skills are plain
+  -- prompt text, so this can never grant a new tool — see agent/src/
+  -- capabilities.ts and agent/src/session.ts's skillsOverride usage).
+  enabled_skills   TEXT[],
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE messages (
@@ -84,6 +90,29 @@ CREATE TABLE artifacts (
   content     TEXT NOT NULL,
   sanitized   BOOLEAN NOT NULL DEFAULT false,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ─── Extension proposals ────────────────────────────────────────────────
+-- A user-submitted DRAFT for a new agent/.pi/extensions/ entry. Recording a
+-- proposal here never makes it live: the agent only ever loads extensions
+-- listed by path+sha256+tools in agent/.pi/extensions/manifest.json
+-- (agent/src/capabilities.ts, root CLAUDE.md invariant #4), and nothing in
+-- this app writes to that file or that directory at runtime. `status` is
+-- review bookkeeping for a human maintainer, not a deployment switch —
+-- 'approved' still requires someone to copy `code` into a committed file,
+-- add the matching manifest.json entry, and pass tools/check_extension_
+-- manifest.py before it can ever run.
+CREATE TABLE extension_proposals (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title         TEXT        NOT NULL,
+  description   TEXT        NOT NULL,
+  tool_names    TEXT[]      NOT NULL,
+  code          TEXT        NOT NULL,
+  sha256        TEXT        NOT NULL, -- of `code`, for a reviewer to paste straight into manifest.json
+  status        TEXT        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  session_id    UUID        REFERENCES sessions(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ─── Operations ────────────────────────────────────────────────────────

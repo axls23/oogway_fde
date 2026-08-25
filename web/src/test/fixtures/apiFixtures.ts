@@ -5,6 +5,16 @@ export const FIXTURE_CONFIG: ConfigResponse = {
   model: "qwen2.5:7b-instruct",
   cloud_available: false,
   corpus: { episode_count: 303, chunk_count: 41822 },
+  capabilities: {
+    skills: [
+      { name: "ship30-essay", description: "Write a Ship 30 essay from the current conversation." },
+      { name: "artifact-html", description: "Produce a self-contained HTML/CSS snippet for the artifact viewer." },
+    ],
+    extensions: [],
+    extensions_enabled: false,
+    tools: ["search_transcripts", "create_artifact"],
+    agent_reachable: true,
+  },
 };
 
 export const FIXTURE_SESSION: Session = {
@@ -12,6 +22,7 @@ export const FIXTURE_SESSION: Session = {
   title: "Activation vs. acquisition",
   provider: "ollama",
   model: "qwen2.5:7b-instruct",
+  enabled_skills: null,
   created_at: "2026-08-20T14:03:00Z",
   updated_at: "2026-08-20T14:05:00Z",
 };

@@ -33,8 +33,23 @@ components:
         title: { type: [string, "null"] }
         provider: { type: string, example: ollama }
         model: { type: string, example: "qwen2.5:7b-instruct" }
+        enabled_skills:
+          type: [array, "null"]
+          items: { type: string }
+          description: >
+            Root CLAUDE.md invariant #4: null = every discovered skill
+            active for this session (default); a non-null array is an
+            explicit allowlist by skill name. Skills carry no tools, so
+            this can only narrow prompt content, never grant capability.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    UpdateSessionCapabilitiesRequest:
+      type: object
+      properties:
+        enabled_skills:
+          type: [array, "null"]
+          items: { type: string }
 
     Citation:
       type: object
@@ -122,7 +137,7 @@ components:
 
     ConfigResponse:
       type: object
-      required: [provider, model, cloud_available, corpus]
+      required: [provider, model, cloud_available, corpus, capabilities]
       properties:
         provider: { type: string, enum: [ollama, anthropic] }
         model: { type: string }
@@ -133,6 +148,88 @@ components:
           properties:
             episode_count: { type: integer }
             chunk_count: { type: integer }
+        capabilities: { $ref: "#/components/schemas/Capabilities" }
+
+    Capabilities:
+      description: >
+        Root CLAUDE.md invariant #4 / architecture.md §8.5: what's actually
+        active on the agent right now. `extensions_enabled: false` (the
+        default) means Pi's .pi/extensions/ mechanism is off entirely, not
+        just empty. `agent_reachable: false` means this snapshot could not
+        be fetched from the agent service and the other fields are empty
+        defaults, not a confirmed empty state.
+      type: object
+      required: [skills, extensions, extensions_enabled, tools, agent_reachable]
+      properties:
+        skills:
+          type: array
+          items:
+            type: object
+            required: [name, description]
+            properties:
+              name: { type: string }
+              description: { type: string }
+        extensions:
+          type: array
+          items:
+            type: object
+            required: [path, tools]
+            properties:
+              path: { type: string }
+              tools: { type: array, items: { type: string } }
+        extensions_enabled: { type: boolean }
+        tools: { type: array, items: { type: string } }
+        agent_reachable: { type: boolean }
+
+    CreateExtensionProposalRequest:
+      description: >
+        A user-drafted proposal for a new agent/.pi/extensions/ entry.
+        Recording one never deploys it (root CLAUDE.md invariant #4) — a
+        maintainer must still commit the code, add a matching
+        agent/.pi/extensions/manifest.json entry, and pass
+        tools/check_extension_manifest.py before it can run.
+      type: object
+      required: [title, description, tool_names, code]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, minLength: 1, maxLength: 2000 }
+        tool_names:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { type: string, pattern: "^[a-z][a-z0-9_]{0,63}$" }
+        code: { type: string, minLength: 1, maxLength: 100000 }
+
+    ExtensionProposal:
+      type: object
+      required: [id, title, description, tool_names, code, sha256, status, session_id, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        tool_names: { type: array, items: { type: string } }
+        code: { type: string }
+        sha256:
+          type: string
+          description: sha256 of `code` — paste straight into manifest.json's matching entry.
+        status: { type: string, enum: [pending, approved, rejected] }
+        session_id: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ExtensionProposalList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ExtensionProposal" }
+
+    UpdateExtensionProposalStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [pending, approved, rejected] }
 
     HealthDeps:
       type: object
@@ -165,6 +262,39 @@ components:
                 required: [text]
                 properties:
                   text: { type: string }
+
+    # Contract addition (agent/ build, architecture.md §8.3): the agent's
+    # create_artifact tool needs a write path to persist an artifact before
+    # it can emit an `artifact` SSE frame carrying a real artifact_id. The
+    # original contract only exposed GET /artifacts/{id}. This is the
+    # narrowest addition that closes that gap — see POST /internal/artifacts
+    # below. Not exposed to the browser, same trust boundary as
+    # /internal/retrieve (Compose-internal network + shared-secret header).
+    CreateArtifactRequest:
+      type: object
+      required: [session_id, kind, content]
+      properties:
+        session_id: { type: string, format: uuid }
+        message_id: { type: [string, "null"], format: uuid }
+        kind: { type: string, enum: [markdown, html] }
+        title: { type: [string, "null"] }
+        content: { type: string, maxLength: 120000 }
+
+    # Contract addition (agent/ build): the agent's new edit_artifact tool
+    # revises an artifact it already created, instead of pasting the
+    # revised content into the chat reply because it has no way to update
+    # what it made. `kind` is deliberately absent — an edit changes
+    # content/title on the existing row, never its kind. Same trust
+    # boundary and session-scoping as CreateArtifactRequest: api verifies
+    # session_id matches the artifact's own session_id before applying the
+    # update (see PATCH /internal/artifacts/{artifact_id}).
+    UpdateArtifactRequest:
+      type: object
+      required: [session_id, content]
+      properties:
+        session_id: { type: string, format: uuid }
+        title: { type: [string, "null"] }
+        content: { type: string, maxLength: 120000 }
 
   securitySchemes:
     internalToken:
@@ -278,6 +408,32 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
+  /sessions/{id}/capabilities:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      summary: Set this session's active skill allowlist (root CLAUDE.md invariant #4)
+      operationId: updateSessionCapabilities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateSessionCapabilitiesRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
   /sessions/{id}/messages:
     parameters:
       - name: id
@@ -302,6 +458,62 @@ paths:
               schema: { type: string }
         "503":
           description: Provider unavailable (e.g. Ollama unreachable) — no silent failover
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /extension-proposals:
+    get:
+      summary: List extension proposals, newest first
+      operationId: listExtensionProposals
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtensionProposalList" }
+    post:
+      summary: Draft a new extension proposal (review queue only — never auto-deployed)
+      operationId: createExtensionProposal
+      parameters:
+        - name: session_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateExtensionProposalRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtensionProposal" }
+
+  /extension-proposals/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      summary: Update review status (bookkeeping only — see ExtensionProposal description)
+      operationId: updateExtensionProposalStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateExtensionProposalStatusRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtensionProposal" }
+        "404":
+          description: Not found
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -368,6 +580,75 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RetrieveResponse" }
+        "401":
+          description: Missing or invalid internal token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /internal/artifacts/{artifact_id}:
+    patch:
+      summary: >
+        Revise an artifact the agent's edit_artifact tool already created
+        earlier in the session, in place — no version history, matching the
+        no-undo semantics artifacts already have on session delete. Caller:
+        agent service only. `session_id` in the body must match the
+        artifact's own session_id or the request is rejected as not found,
+        the same information-minimal failure shape used elsewhere on this
+        internal surface.
+      operationId: internalUpdateArtifact
+      security:
+        - internalToken: []
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateArtifactRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+        "401":
+          description: Missing or invalid internal token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: No artifact with this id in this session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /internal/artifacts:
+    post:
+      summary: >
+        Persist an artifact produced by the agent's create_artifact tool
+        (contract addition — see the note on CreateArtifactRequest above).
+        Caller: agent service only. api is responsible for sanitisation
+        (architecture.md §7.6) before the content is ever served to the
+        browser; `sanitized` on the response reflects whether that already
+        ran synchronously.
+      operationId: internalCreateArtifact
+      security:
+        - internalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateArtifactRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
         "401":
           description: Missing or invalid internal token
           content:

@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# launch-system — one-command startup for a fresh clone (README §3, PRD AC1).
+#
+# Deliberately does more than `make up`. Bringing this stack up for real
+# surfaced three things a bare checkout needs that `docker compose up`
+# alone does not provide, and this script exists to make each of them an
+# explicit, checked step rather than a mystery failure later:
+#
+#   1. Docker Compose has two unrelated entry points on a real machine —
+#      the `docker compose` plugin (needs a running Docker daemon) and the
+#      standalone `docker-compose` binary against a Docker-API-compatible
+#      socket (README §2's documented path: rootless podman, no dockerd,
+#      no root — this is how the repo was actually built and tested, not
+#      a hypothetical fallback). This script picks whichever is real on
+#      this machine instead of assuming Docker Desktop.
+#   2. Ollama's own default bind (127.0.0.1) is reachable from this shell
+#      but NOT from inside a container via host.docker.internal — the
+#      single most common way this demo silently answers nothing while
+#      every health check still looks green from the host.
+#   3. There is no working seed-restore path (contrary to older README
+#      drafts): a bare `db` starts with zero episodes, so retrieval will
+#      abstain on everything until an ingest actually runs. This script
+#      surfaces that state instead of letting a client discover it by
+#      asking a question and getting an unexplained refusal.
+#
+# Idempotent: safe to re-run against an already-running stack.
+
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+log()  { printf '==> %s\n' "$*"; }
+warn() { printf 'launch-system: warning: %s\n' "$*" >&2; }
+fail() { printf 'launch-system: %s\n' "$*" >&2; exit 1; }
+
+# ── 1. .env ──────────────────────────────────────────────────────────────
+if [[ ! -f .env ]]; then
+  log "No .env — copying .env.example (defaults work as-is, no API key required)"
+  cp .env.example .env
+fi
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+
+# ── 2. Corpus ────────────────────────────────────────────────────────────
+if [[ ! -d ingest/corpus/episodes ]]; then
+  log "Cloning transcript corpus (not vendored, ~10MB)"
+  git clone --depth 1 https://github.com/ChatPRD/lennys-podcast-transcripts.git ingest/corpus
+fi
+
+# ── 3. Resolve a Docker Compose entry point ─────────────────────────────
+COMPOSE=()
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  if ! docker info >/dev/null 2>&1; then
+    sock="/run/user/$(id -u)/podman/podman.sock"
+    if [[ ! -S "$sock" ]] && command -v podman >/dev/null 2>&1; then
+      log "Enabling rootless podman's Docker-API socket"
+      systemctl --user enable --now podman.socket
+    fi
+    [[ -S "$sock" ]] || fail "No reachable Docker daemon and no podman socket at $sock. Install Docker Desktop, or podman (README §2)."
+    export DOCKER_HOST="unix://$sock"
+  fi
+  COMPOSE=(docker-compose)
+else
+  fail "Neither the 'docker compose' plugin nor the standalone 'docker-compose' binary is available."
+fi
+log "Compose: ${COMPOSE[*]} (DOCKER_HOST=${DOCKER_HOST:-default})"
+
+# ── 4. Ollama, reachable from inside a container ────────────────────────
+if curl -fsS --max-time 2 "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
+  log "Ollama already running — if api/agent later report ollama:down, it's almost"
+  log "  certainly bound to 127.0.0.1 only. Restart it with: OLLAMA_HOST=0.0.0.0:11434 ollama serve"
+else
+  command -v ollama >/dev/null 2>&1 || fail "Ollama is not installed. Install it from https://ollama.com, then re-run."
+  log "Starting Ollama, bound to 0.0.0.0 so containers can reach it via host.docker.internal"
+  OLLAMA_HOST=0.0.0.0:11434 nohup ollama serve >/tmp/ollama-serve.log 2>&1 &
+  disown
+  for _ in $(seq 1 30); do
+    curl -fsS --max-time 1 "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  curl -fsS --max-time 2 "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1 \
+    || fail "Ollama did not come up in time. Check /tmp/ollama-serve.log."
+fi
+
+ensure_model() {
+  local model="$1"
+  curl -fsS "http://127.0.0.1:11434/api/tags" 2>/dev/null | grep -q "\"name\":\"${model}\"" && return 0
+  log "Pulling ${model} (first run only — several GB, can take a few minutes)"
+  ollama pull "$model"
+}
+ensure_model "${LLM_MODEL:-qwen2.5:7b-instruct}"
+ensure_model "${EMBED_MODEL:-nomic-embed-text}"
+
+if ! command -v nvidia-smi >/dev/null 2>&1 && [[ "${MODEL_TIMEOUT_S:-60}" -lt 120 ]]; then
+  warn "No GPU detected and MODEL_TIMEOUT_S=${MODEL_TIMEOUT_S:-60} — CPU-only inference of a 7B model"
+  warn "  routinely needs 120-200s for a full turn. Consider raising MODEL_TIMEOUT_S in .env."
+fi
+
+# ── 5. Build and start the stack ─────────────────────────────────────────
+log "Building and starting db, api, agent, web"
+"${COMPOSE[@]}" up --build -d
+
+log "Waiting for db, ollama, and agent to report healthy via /health/deps"
+deps="{}"
+for _ in $(seq 1 60); do
+  deps="$(curl -fsS --max-time 2 http://localhost:8000/health/deps 2>/dev/null || echo '{}')"
+  if grep -q '"db":"ok"' <<<"$deps" && grep -q '"ollama":"ok"' <<<"$deps" && grep -q '"agent":"ok"' <<<"$deps"; then
+    break
+  fi
+  sleep 2
+done
+printf '%s\n' "$deps"
+grep -q '"db":"ok"' <<<"$deps" && grep -q '"ollama":"ok"' <<<"$deps" && grep -q '"agent":"ok"' <<<"$deps" \
+  || fail "Services did not all report healthy in time. Check: ${COMPOSE[*]} logs"
+
+# ── 6. Corpus state — no seed-restore path exists, so say so plainly ────
+config="$(curl -fsS --max-time 2 http://localhost:8000/config 2>/dev/null || echo '{}')"
+episodes="$(grep -o '"episode_count":[0-9]*' <<<"$config" | grep -o '[0-9]*' || true)"
+if [[ -z "${episodes:-}" || "$episodes" -eq 0 ]]; then
+  log "0 episodes ingested — every question will abstain until you run one of:"
+  log "  make ingest-subset      # curated topics, faster"
+  log "  make ingest             # full corpus (269 episodes)"
+fi
+
+# ── 7. Done ───────────────────────────────────────────────────────────────
+log "Up: http://localhost:5173  (api http://localhost:8000, agent http://localhost:8100)"
+log "Logs:  ${COMPOSE[*]} logs -f"
+log "Stop:  ${COMPOSE[*]} down"

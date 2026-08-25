@@ -19,6 +19,40 @@ export interface Session {
   title: string | null;
   provider: string;
   model: string;
+  /** Root CLAUDE.md invariant #4: null = every discovered skill active
+   * (default); a non-null array is an explicit per-session allowlist by
+   * skill name. Skills carry no tools — this can only narrow prompt
+   * content, never grant capability. */
+  enabled_skills: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateSessionCapabilitiesRequest {
+  enabled_skills: string[] | null;
+}
+
+export interface CreateExtensionProposalRequest {
+  title: string;
+  description: string;
+  tool_names: string[];
+  code: string;
+}
+
+export type ExtensionProposalStatus = "pending" | "approved" | "rejected";
+
+/** A user-drafted proposal for a new agent/.pi/extensions/ entry — a review
+ * queue row, never a deployment. See CreateExtensionProposalRequest and
+ * root CLAUDE.md invariant #4. */
+export interface ExtensionProposal {
+  id: string;
+  title: string;
+  description: string;
+  tool_names: string[];
+  code: string;
+  sha256: string;
+  status: ExtensionProposalStatus;
+  session_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -88,6 +122,27 @@ export interface Artifact {
   created_at: string;
 }
 
+export interface SkillSummary {
+  name: string;
+  description: string;
+}
+
+export interface ExtensionSummary {
+  path: string;
+  tools: string[];
+}
+
+/** Root CLAUDE.md invariant #4: what's actually active on the agent right
+ * now. `agent_reachable: false` means this is an empty default, not a
+ * confirmed empty state — the ActiveCapabilities panel must tell those apart. */
+export interface Capabilities {
+  skills: SkillSummary[];
+  extensions: ExtensionSummary[];
+  extensions_enabled: boolean;
+  tools: string[];
+  agent_reachable: boolean;
+}
+
 export interface ConfigResponse {
   provider: Provider;
   model: string;
@@ -96,6 +151,7 @@ export interface ConfigResponse {
     episode_count: number;
     chunk_count: number;
   };
+  capabilities: Capabilities;
 }
 
 export type DepStatus = "ok" | "degraded" | "down";

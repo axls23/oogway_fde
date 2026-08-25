@@ -8,7 +8,7 @@ import {
   FIXTURE_SESSION_WITH_HISTORY,
 } from "../test/fixtures/apiFixtures";
 import { SSE_ABSTENTION, SSE_GROUNDED_QA, SSE_SHIP30_ESSAY } from "../test/fixtures/sseFixtures";
-import type { Session, SessionDetail } from "../api/types";
+import type { ExtensionProposal, Session, SessionDetail } from "../api/types";
 
 /**
  * A hand-rolled fetch mock, not a network-level interceptor (no MSW
@@ -28,6 +28,8 @@ const sessions = new Map<string, SessionDetail>([
   [FIXTURE_SESSION.id, FIXTURE_SESSION_WITH_HISTORY],
   [FIXTURE_EMPTY_SESSION.id, FIXTURE_EMPTY_SESSION],
 ]);
+
+const extensionProposals = new Map<string, ExtensionProposal>();
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -113,6 +115,7 @@ async function handleMockRequest(url: URL, init: RequestInit | undefined): Promi
       title: null,
       provider: FIXTURE_CONFIG.provider,
       model: FIXTURE_CONFIG.model,
+      enabled_skills: null,
       created_at: now,
       updated_at: now,
       messages: [],
@@ -134,6 +137,63 @@ async function handleMockRequest(url: URL, init: RequestInit | undefined): Promi
       sessions.delete(id);
       return new Response(null, { status: 204 });
     }
+  }
+
+  const capabilitiesMatch = path.match(/^\/sessions\/([^/]+)\/capabilities$/);
+  if (capabilitiesMatch && method === "PATCH") {
+    const id = capabilitiesMatch[1] as string;
+    const detail = sessions.get(id);
+    if (!detail) return notFound();
+    const body = init?.body
+      ? (JSON.parse(init.body as string) as { enabled_skills: string[] | null })
+      : { enabled_skills: null };
+    detail.enabled_skills = body.enabled_skills;
+    const { messages: _messages, ...session } = detail;
+    return jsonResponse(session);
+  }
+
+  if (method === "GET" && path === "/extension-proposals") {
+    return jsonResponse({ items: Array.from(extensionProposals.values()) });
+  }
+
+  if (method === "POST" && path === "/extension-proposals") {
+    const body = init?.body
+      ? (JSON.parse(init.body as string) as {
+          title: string;
+          description: string;
+          tool_names: string[];
+          code: string;
+        })
+      : { title: "", description: "", tool_names: [], code: "" };
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const proposal = {
+      id,
+      title: body.title,
+      description: body.description,
+      tool_names: body.tool_names,
+      code: body.code,
+      sha256: "mock-sha256-not-computed",
+      status: "pending" as const,
+      session_id: url.searchParams.get("session_id"),
+      created_at: now,
+      updated_at: now,
+    };
+    extensionProposals.set(id, proposal);
+    return jsonResponse(proposal, 201);
+  }
+
+  const proposalMatch = path.match(/^\/extension-proposals\/([^/]+)$/);
+  if (proposalMatch && method === "PATCH") {
+    const id = proposalMatch[1] as string;
+    const proposal = extensionProposals.get(id);
+    if (!proposal) return notFound();
+    const body = init?.body
+      ? (JSON.parse(init.body as string) as { status: "pending" | "approved" | "rejected" })
+      : { status: proposal.status };
+    proposal.status = body.status;
+    proposal.updated_at = new Date().toISOString();
+    return jsonResponse(proposal);
   }
 
   const messagesMatch = path.match(/^\/sessions\/([^/]+)\/messages$/);

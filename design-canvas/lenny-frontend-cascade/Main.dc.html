@@ -1,0 +1,216 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root {
+  --bg: #ffffff; --bg-elevated: #f9fafb; --fg: #18181b; --fg-muted: #52525b;
+  --border: #e4e4e7; --accent: #4338ca; --accent-fg: #ffffff;
+  --badge-bg: #eef2ff; --badge-fg: #3730a3; --badge-border: #c7d2fe; --badge-dot: #16a34a;
+  --user-bubble-bg: #4338ca; --user-bubble-fg: #ffffff;
+  --assistant-bubble-bg: #f4f4f5; --assistant-bubble-fg: #18181b;
+  --chip-bg: #ffffff; --chip-fg: #3730a3; --chip-border: #c7d2fe; --chip-bg-hover: #eef2ff;
+  --focus-ring: #4338ca;
+}
+* , *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px; line-height: 1.5;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; }
+a { color: var(--accent); } a:hover { color: #3730a3; }
+
+.app { display: flex; flex-direction: column; width: 1440px; height: 900px; overflow: hidden; }
+.app__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.app__header-left { display: flex; align-items: center; gap: 0.6rem; }
+.app__name { font-weight: 700; }
+.provider-badge { display: inline-flex; align-items: center; gap: 0.4em; font-size: 0.85rem; font-weight: 600; color: var(--badge-fg); background: var(--badge-bg); border: 1px solid var(--badge-border); border-radius: 999px; padding: 0.3em 0.75em; line-height: 1.2; white-space: nowrap; }
+.provider-badge__dot { width: 0.55em; height: 0.55em; border-radius: 50%; background: var(--badge-dot); flex-shrink: 0; }
+
+.app__body { flex: 1; display: grid; grid-template-columns: 18rem 1fr; min-height: 0; }
+.app__sessions { border-right: 1px solid var(--border); min-height: 0; overflow: hidden; }
+
+.session-list { display: flex; flex-direction: column; height: 100%; padding: 0.75rem; gap: 0.75rem; }
+.session-list__new { background: var(--accent); color: var(--accent-fg); border: none; border-radius: 0.6rem; padding: 0.6rem 0.8rem; font-weight: 700; text-align: left; }
+.session-list__items { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.15rem; }
+.session-list__items li { display: flex; align-items: center; gap: 0.25rem; }
+.session-list__item { flex: 1; text-align: left; background: transparent; border: none; border-radius: 0.5rem; padding: 0.5rem 0.6rem; color: var(--fg); min-width: 0; }
+.session-list__item:hover { background: var(--bg-elevated); }
+.session-list__item--active { background: var(--badge-bg); color: var(--badge-fg); font-weight: 600; }
+.session-list__title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-list__delete { background: transparent; border: none; color: var(--fg-muted); font-size: 1.1rem; line-height: 1; padding: 0.3rem 0.5rem; border-radius: 0.4rem; flex-shrink: 0; }
+.session-list__delete:hover { color: #7f1d1d; background: #fef2f2; }
+
+.chat-column { display: grid; grid-template-rows: 1fr auto; height: 100%; min-height: 0; }
+.chat-column__messages { grid-row: 1; overflow-y: auto; padding: 1rem; min-height: 0; }
+.chat-column__composer-row { grid-row: 2; }
+.message-list { display: flex; flex-direction: column; gap: 1rem; max-width: 52rem; margin: 0 auto; }
+.message { display: flex; flex-direction: column; }
+.message--user { align-items: flex-end; }
+.message--assistant { align-items: flex-start; }
+.message__bubble { border-radius: 1rem; padding: 0.65rem 1rem; max-width: 40rem; overflow-wrap: break-word; }
+.message__bubble--user { background: var(--user-bubble-bg); color: var(--user-bubble-fg); border-bottom-right-radius: 0.25rem; white-space: pre-wrap; }
+.message__bubble--assistant { background: var(--assistant-bubble-bg); color: var(--assistant-bubble-fg); border-bottom-left-radius: 0.25rem; }
+.message__bubble--assistant p { margin: 0 0 0.6em; }
+.message__bubble--assistant p:last-child { margin-bottom: 0; }
+
+.citation-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+.citation { display: inline-flex; flex-direction: column; align-items: flex-start; }
+.citation__chip { display: inline-flex; align-items: center; gap: 0.4em; background: var(--chip-bg); color: var(--chip-fg); border: 1px solid var(--chip-border); border-radius: 999px; padding: 0.25em 0.7em 0.25em 0.4em; font-size: 0.82rem; font-weight: 500; max-width: 22rem; text-align: left; }
+.citation__chip:hover { background: var(--chip-bg-hover); }
+.citation__rank { display: inline-flex; align-items: center; justify-content: center; width: 1.2em; height: 1.2em; border-radius: 50%; background: var(--chip-border); color: var(--chip-fg); font-size: 0.72em; font-weight: 700; flex-shrink: 0; }
+.citation__panel { margin-top: 0.4rem; padding: 0.75rem 0.9rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 0.6rem; max-width: 36rem; font-size: 0.88rem; }
+.citation__snippet { margin: 0 0 0.5rem 0; padding: 0; border: none; color: var(--fg); white-space: pre-wrap; }
+.citation__link { color: var(--accent); font-weight: 600; text-decoration: underline; }
+
+.composer { display: flex; gap: 0.5rem; align-items: flex-end; padding: 0.75rem 1rem; border-top: 1px solid var(--border); background: var(--bg); max-width: 52rem; margin: 0 auto; width: 100%; }
+.composer__input { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.6rem 0.8rem; background: var(--bg-elevated); color: var(--fg); min-height: 2.5rem; }
+.composer__send { background: var(--accent); color: var(--accent-fg); border: none; border-radius: 0.75rem; padding: 0.6rem 1.1rem; font-weight: 700; flex-shrink: 0; }
+</style>
+</helmet>
+
+<div class="app">
+  <header class="app__header">
+    <div class="app__header-left">
+      <span class="app__name">The Lenny Growth Assistant</span>
+    </div>
+    <span class="provider-badge" role="status">
+      <span class="provider-badge__dot" aria-hidden="true"></span>
+      ollama · qwen2.5:7b-instruct
+    </span>
+  </header>
+
+  <div class="app__body">
+    <aside class="app__sessions">
+      <div class="session-list">
+        <button type="button" class="session-list__new">+ New chat</button>
+        <ul class="session-list__items">
+          <li>
+            <button type="button" class="session-list__item session-list__item--active">
+              <span class="session-list__title">Activation drop investigation</span>
+            </button>
+            <button type="button" class="session-list__delete" aria-label="Delete session">×</button>
+          </li>
+          <li>
+            <button type="button" class="session-list__item">
+              <span class="session-list__title">Pricing page redesign brief</span>
+            </button>
+            <button type="button" class="session-list__delete" aria-label="Delete session">×</button>
+          </li>
+          <li>
+            <button type="button" class="session-list__item">
+              <span class="session-list__title">Q3 growth channel review</span>
+            </button>
+            <button type="button" class="session-list__delete" aria-label="Delete session">×</button>
+          </li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="app__main">
+      <div class="chat-column">
+        <div class="chat-column__messages">
+          <div class="message-list">
+
+            <div class="message message--user">
+              <div class="message__bubble message__bubble--user">Our activation rate dropped after we added a second onboarding step. What do operators say about this?</div>
+            </div>
+
+            <div class="message message--assistant">
+              <div class="message__bubble message__bubble--assistant">
+                <p>Operators generally treat added onboarding friction as a real activation risk unless the extra step visibly earns its place. A couple of consistent threads:</p>
+                <p><strong>Front-load value, not setup.</strong> Guests describe measuring "time to first value" per step and cutting any step that delays it without a clear payoff — a second step is fine if it's the moment the product actually clicks, risky if it's just more configuration.</p>
+                <p><strong>Instrument the step in isolation.</strong> Rather than reading the aggregate activation number, operators pull step-level drop-off first — it usually isolates whether the regression is the new step itself or something else that shipped alongside it.</p>
+              </div>
+              <div class="citation-list">
+                <span class="citation">
+                  <button type="button" class="citation__chip" aria-expanded="{{cite1.expanded}}" onClick="{{cite1.toggle}}">
+                    <span class="citation__rank" aria-hidden="true">1</span>
+                    Brian Balfour · Growth Loops and Activation
+                  </button>
+                  <sc-if value="{{cite1.expanded}}" hint-placeholder-val="{{false}}">
+                    <span class="citation__panel" role="group">
+                      <blockquote class="citation__snippet">"...the teams that get onboarding right are obsessive about time-to-value per step, not steps-to-completion. A step is allowed to exist if it's the step where the product actually clicks for the user..."</blockquote>
+                      <a href="#" class="citation__link">Watch on YouTube</a>
+                    </span>
+                  </sc-if>
+                </span>
+                <span class="citation">
+                  <button type="button" class="citation__chip" aria-expanded="{{cite2.expanded}}" onClick="{{cite2.toggle}}">
+                    <span class="citation__rank" aria-hidden="true">2</span>
+                    Elena Verna · Activation Metrics That Matter
+                  </button>
+                  <sc-if value="{{cite2.expanded}}" hint-placeholder-val="{{false}}">
+                    <span class="citation__panel" role="group">
+                      <blockquote class="citation__snippet">"...don't look at blended activation rate first. Pull the step-level funnel. Nine times out of ten a regression traces to one specific step, and the aggregate number just hides where..."</blockquote>
+                      <a href="#" class="citation__link">Watch on YouTube</a>
+                    </span>
+                  </sc-if>
+                </span>
+              </div>
+            </div>
+
+            <div class="message message--user">
+              <div class="message__bubble message__bubble--user">what about B2B?</div>
+            </div>
+
+            <div class="message message--assistant">
+              <div class="message__bubble message__bubble--assistant">
+                <p>For B2B specifically, guests draw a sharper line: onboarding steps tied to team setup (inviting teammates, connecting a data source) are treated as investment the user is willing to make if activation happens <em>after</em>, since B2B activation is usually a team behavior, not a solo one.</p>
+              </div>
+              <div class="citation-list">
+                <span class="citation">
+                  <button type="button" class="citation__chip" aria-expanded="{{cite3.expanded}}" onClick="{{cite3.toggle}}">
+                    <span class="citation__rank" aria-hidden="true">1</span>
+                    Casey Winters · B2B Growth Playbooks
+                  </button>
+                  <sc-if value="{{cite3.expanded}}" hint-placeholder-val="{{true}}">
+                    <span class="citation__panel" role="group">
+                      <blockquote class="citation__snippet">"...in B2B, a setup step that gets a second teammate into the product is usually worth the friction, because your real activation event is a team behavior, not a single login. The mistake is friction that doesn't lead anywhere collaborative..."</blockquote>
+                      <a href="#" class="citation__link">Watch on YouTube</a>
+                    </span>
+                  </sc-if>
+                </span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+        <div class="chat-column__composer-row">
+          <div class="composer">
+            <textarea class="composer__input" rows="1" placeholder="Ask a follow-up…"></textarea>
+            <button type="button" class="composer__send">Send</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  citation(key, defaultExpanded) {
+    return {
+      expanded: this.state[key] ?? defaultExpanded,
+      toggle: () => this.setState({ [key]: !(this.state[key] ?? defaultExpanded) }),
+    };
+  }
+  renderVals() {
+    return {
+      cite1: this.citation('c1', false),
+      cite2: this.citation('c2', false),
+      cite3: this.citation('c3', true),
+    };
+  }
+}
+</script>
+</body>
+</html>

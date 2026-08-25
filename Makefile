@@ -38,6 +38,7 @@ check:
 	cd agent && npx tsc --noEmit && npx biome check .
 	python3 tools/forbidden_patterns.py
 	python3 tools/check_pins.py
+	python3 tools/check_extension_manifest.py
 
 test: test-api test-eval
 

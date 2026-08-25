@@ -72,6 +72,7 @@ function SessionChat({
 }) {
   const { messages, pending, sending, error, sendMessage, retry } = useChatTurn(sessionId, initialMessages);
   const [lastArtifactId, setLastArtifactId] = useState<string | null>(null);
+  const [artifactRefreshToken, setArtifactRefreshToken] = useState(0);
   const [paneOpen, setPaneOpen] = useState(false);
   const isSingleColumn = useMediaQuery(BREAKPOINTS.singleColumn);
   const [mobileTab, setMobileTab] = useState<"chat" | "artifact">("chat");
@@ -84,6 +85,10 @@ function SessionChat({
 
   useEffect(() => {
     if (pending.artifactId) {
+      // Bump unconditionally, even when pending.artifactId matches
+      // lastArtifactId — edit_artifact revises the same id in place, and
+      // this is ArtifactViewer's only signal to refetch in that case.
+      setArtifactRefreshToken((n) => n + 1);
       setLastArtifactId(pending.artifactId);
       setPaneOpen(true);
       if (isSingleColumn) setMobileTab("artifact");
@@ -109,7 +114,7 @@ function SessionChat({
 
   const artifactPane = paneOpen ? (
     lastArtifactId ? (
-      <ArtifactViewer artifactId={lastArtifactId} onClose={() => setPaneOpen(false)} />
+      <ArtifactViewer artifactId={lastArtifactId} refreshToken={artifactRefreshToken} onClose={() => setPaneOpen(false)} />
     ) : (
       <div className="artifact-pane">
         <div className="artifact-pane__header">

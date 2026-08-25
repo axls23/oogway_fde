@@ -1,0 +1,21 @@
+{
+  "providers": {
+    "ollama": {
+      "name": "Ollama (local)",
+      "baseUrl": "http://host.docker.internal:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "models": [
+        {
+          "id": "qwen2.5:7b-instruct",
+          "name": "Qwen 2.5 7B Instruct (local)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

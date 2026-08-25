@@ -1,0 +1,116 @@
+.active-capabilities {
+  position: relative;
+}
+
+.active-capabilities__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--badge-fg);
+  background: var(--badge-bg);
+  border: 1px solid var(--badge-border);
+  border-radius: 999px;
+  padding: 0.3em 0.75em;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.active-capabilities__trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.active-capabilities__dot {
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--badge-dot);
+  flex-shrink: 0;
+}
+
+.active-capabilities__panel {
+  position: absolute;
+  top: calc(100% + 0.5em);
+  right: 0;
+  z-index: 20;
+  width: 20rem;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.9rem 1rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.active-capabilities__panel section + section {
+  margin-top: 0.9rem;
+}
+
+.active-capabilities__panel h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin: 0 0 0.4rem;
+}
+
+.active-capabilities__notice {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--badge-fg-failed);
+}
+
+.active-capabilities__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.active-capabilities__pill {
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--chip-fg);
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  padding: 0.15em 0.6em;
+}
+
+.active-capabilities__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.active-capabilities__list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.85rem;
+}
+
+.active-capabilities__list strong {
+  color: var(--fg);
+}
+
+.active-capabilities__list span {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+.active-capabilities__empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+}

@@ -82,6 +82,8 @@ Docker install, ignore this section entirely and just run `docker compose up`.
 cp .env.example .env          # defaults work as-is — no key required
 make corpus                   # clone the transcript corpus (not vendored, ~10MB)
 make up                       # docker compose up --build
+# or, after Ollama is running:
+./launch-system               # validates prerequisites, then runs make up
 ```
 
 `make up` starts `db` → runs migrations → restores the seeded index (see

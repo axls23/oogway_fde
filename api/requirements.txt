@@ -1,0 +1,71 @@
+# Exact pins only — no ranges (ADR-007, tools/check_pins.py enforces this).
+# Regenerate with:
+#   python3.12 -m venv .venv && .venv/bin/pip install -r requirements.in-like-list-below
+#   .venv/bin/pip freeze
+# Captured against Python 3.12 (matches the Dockerfile's python:3.12-slim
+# base and api/CLAUDE.md's `pip install -r requirements.txt` command).
+
+# ── Web framework / ASGI ─────────────────────────────────────────────────
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.4
+httptools==0.8.0
+uvloop==0.22.1
+watchfiles==1.2.0
+websockets==17.0.1
+h11==0.16.0
+anyio==4.14.2
+
+# ── Data validation / settings ───────────────────────────────────────────
+pydantic==2.13.4
+pydantic_core==2.46.4
+pydantic-settings==2.15.0
+typing_extensions==4.16.0
+typing-inspection==0.4.4
+annotated-types==0.8.0
+
+# ── Database ──────────────────────────────────────────────────────────────
+SQLAlchemy==2.0.52
+asyncpg==0.31.0
+alembic==1.19.1
+pgvector==0.5.0
+greenlet==3.5.5
+Mako==1.4.1
+MarkupSafe==3.0.3
+
+# ── HTTP client (Ollama, Anthropic, agent service) ──────────────────────
+httpx==0.28.1
+httpcore==1.0.9
+certifi==2026.7.22
+idna==3.19
+
+# ── Artifact sanitization ────────────────────────────────────────────────
+bleach==6.4.0
+webencodings==0.6.1
+
+# ── Config / misc runtime ────────────────────────────────────────────────
+click==8.4.2
+python-dotenv==1.2.3
+PyYAML==6.0.3
+packaging==26.3
+
+# ── Test / lint / type-check tooling (api/CLAUDE.md commands) ───────────
+pytest==9.1.1
+pytest-asyncio==1.4.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==2026.6.3
+attrs==26.1.0
+ruff==0.16.4
+mypy==2.3.1
+mypy_extensions==1.1.0
+ast_serialize==0.8.0
+librt==0.15.0
+types-bleach==6.4.0.20260728
+types-html5lib==1.1.11.20260518
+types-webencodings==0.6.0.20260824
+pluggy==1.6.0
+iniconfig==2.3.0
+Pygments==2.21.0
+pathspec==1.1.1

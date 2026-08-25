@@ -1,0 +1,176 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root {
+  --bg: #ffffff; --bg-elevated: #f9fafb; --fg: #18181b; --fg-muted: #52525b;
+  --border: #e4e4e7; --accent: #4338ca; --accent-fg: #ffffff;
+  --badge-bg: #eef2ff; --badge-fg: #3730a3; --badge-border: #c7d2fe; --badge-dot: #16a34a;
+  --user-bubble-bg: #4338ca; --user-bubble-fg: #ffffff;
+  --assistant-bubble-bg: #f4f4f5; --assistant-bubble-fg: #18181b;
+  --chip-bg: #ffffff; --chip-fg: #3730a3; --chip-border: #c7d2fe;
+  --sandbox-border: #f59e0b; --sandbox-bg: #fffbeb; --sandbox-fg: #78350f;
+}
+* , *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px; line-height: 1.5;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; }
+
+.app { width: 390px; height: 844px; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+.app__header { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.app__header-left { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.app__drawer-toggle { border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.3rem 0.5rem; font-size: 1.1rem; }
+.app__name { font-weight: 700; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-badge { display: inline-flex; align-items: center; gap: 0.35em; font-size: 0.78rem; font-weight: 600; color: var(--badge-fg); background: var(--badge-bg); border: 1px solid var(--badge-border); border-radius: 999px; padding: 0.25em 0.6em; flex-shrink: 0; }
+.provider-badge__dot { width: 0.5em; height: 0.5em; border-radius: 50%; background: var(--badge-dot); }
+
+.mobile-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.mobile-tabs__tab { flex: 1; padding: 0.6rem; font-weight: 600; font-size: 0.88rem; color: var(--fg-muted); border-bottom: 2px solid transparent; }
+.mobile-tabs__tab--active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.mobile-body__content { flex: 1; min-height: 0; overflow-y: auto; position: relative; }
+
+.chat-pad { padding: 0.9rem; }
+.message--user { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
+.message__bubble--user { background: var(--user-bubble-bg); color: var(--user-bubble-fg); border-radius: 1rem; border-bottom-right-radius: 0.25rem; padding: 0.6rem 0.85rem; max-width: 85%; font-size: 0.92rem; }
+.message__bubble--assistant { background: var(--assistant-bubble-bg); color: var(--assistant-bubble-fg); border-radius: 1rem; border-bottom-left-radius: 0.25rem; padding: 0.6rem 0.85rem; font-size: 0.92rem; }
+.citation-list { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+.citation__chip { display: inline-flex; align-items: center; gap: 0.35em; background: var(--chip-bg); color: var(--chip-fg); border: 1px solid var(--chip-border); border-radius: 999px; padding: 0.22em 0.6em 0.22em 0.35em; font-size: 0.76rem; font-weight: 500; max-width: 15rem; text-align: left; }
+.citation__rank { display: inline-flex; align-items: center; justify-content: center; width: 1.2em; height: 1.2em; border-radius: 50%; background: var(--chip-border); color: var(--chip-fg); font-size: 0.72em; font-weight: 700; flex-shrink: 0; }
+
+.composer { display: flex; gap: 0.4rem; align-items: flex-end; padding: 0.6rem 0.75rem; border-top: 1px solid var(--border); flex-shrink: 0; }
+.composer__input { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 0.7rem; padding: 0.5rem 0.7rem; background: var(--bg-elevated); color: var(--fg); min-height: 2.2rem; font-size: 0.9rem; }
+.composer__send { background: var(--accent); color: var(--accent-fg); border-radius: 0.7rem; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.88rem; flex-shrink: 0; }
+
+.citation__sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--bg); border-top: 1px solid var(--border); border-radius: 1rem 1rem 0 0; padding: 1rem 1rem 1.25rem; max-height: 60%; overflow-y: auto; box-shadow: 0 -4px 24px rgba(0,0,0,0.15); }
+.citation__sheet-close { display: block; margin: 0 0 0.6rem auto; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; padding: 0.25em 0.8em; font-size: 0.82rem; font-weight: 600; }
+.citation__snippet { margin: 0 0 0.5rem; padding: 0; color: var(--fg); font-size: 0.88rem; white-space: pre-wrap; }
+.citation__link { color: var(--accent); font-weight: 600; text-decoration: underline; font-size: 0.85rem; }
+
+.artifact-pane__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--sandbox-border); background: var(--sandbox-bg); color: var(--sandbox-fg); }
+.artifact-pane__title { font-weight: 700; font-size: 0.88rem; }
+.artifact-pane__sandbox-note { font-size: 0.7rem; display: block; margin-top: 0.1rem; }
+.artifact-pane__markdown { padding: 0.9rem; font-size: 0.9rem; }
+.artifact-pane__markdown h2 { font-size: 0.95rem; margin: 0.9em 0 0.35em; }
+.artifact-pane__markdown h2:first-child { margin-top: 0; }
+.artifact-pane__markdown p { margin: 0 0 0.6em; }
+
+.drawer { position: absolute; top: 0; left: 0; bottom: 0; width: 82%; z-index: 60; background: var(--bg); box-shadow: 4px 0 24px rgba(0,0,0,0.2); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.drawer__new { background: var(--accent); color: var(--accent-fg); border-radius: 0.6rem; padding: 0.55rem 0.75rem; font-weight: 700; text-align: left; font-size: 0.9rem; }
+.drawer__item { text-align: left; border-radius: 0.5rem; padding: 0.5rem 0.6rem; font-size: 0.9rem; }
+.drawer__item--active { background: var(--badge-bg); color: var(--badge-fg); font-weight: 600; }
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.35); z-index: 50; }
+</style>
+</helmet>
+
+<div class="app">
+  <header class="app__header">
+    <div class="app__header-left">
+      <button type="button" class="app__drawer-toggle" aria-expanded="{{drawerOpen}}" onClick="{{toggleDrawer}}">☰</button>
+      <span class="app__name">Lenny Growth Assistant</span>
+    </div>
+    <span class="provider-badge" role="status">
+      <span class="provider-badge__dot" aria-hidden="true"></span>
+      ollama
+    </span>
+  </header>
+
+  <div class="mobile-tabs">
+    <button type="button" class="{{chatTabClass}}" onClick="{{showChat}}">Chat</button>
+    <button type="button" class="{{artifactTabClass}}" onClick="{{showArtifact}}">Artifact</button>
+  </div>
+
+  <div class="mobile-body__content">
+    <sc-if value="{{isChat}}" hint-placeholder-val="{{true}}">
+      <div class="chat-pad">
+        <div class="message--user">
+          <div class="message__bubble--user">what about B2B?</div>
+        </div>
+        <div class="message__bubble--assistant">
+          B2B activation is usually a team behavior, not a solo one — a setup step that gets a second teammate in is often worth the friction.
+          <div class="citation-list">
+            <button type="button" class="citation__chip" aria-expanded="{{sheetOpen}}" onClick="{{toggleSheet}}">
+              <span class="citation__rank" aria-hidden="true">1</span>
+              Casey Winters · B2B Growth
+            </button>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{sheetOpen}}" hint-placeholder-val="{{false}}">
+        <div class="citation__sheet" role="group" aria-label="Source snippet">
+          <button type="button" class="citation__sheet-close" onClick="{{toggleSheet}}">Close</button>
+          <blockquote class="citation__snippet">"...in B2B, a setup step that gets a second teammate into the product is usually worth the friction, because your real activation event is a team behavior, not a single login..."</blockquote>
+          <a href="#" class="citation__link">Watch on YouTube</a>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{isArtifact}}" hint-placeholder-val="{{false}}">
+      <div>
+        <div class="artifact-pane__header">
+          <div>
+            <span class="artifact-pane__title">B2B Onboarding — One-Pager</span>
+            <span class="artifact-pane__sandbox-note">Generated content — sandboxed, no network access</span>
+          </div>
+        </div>
+        <div class="artifact-pane__markdown">
+          <h2>Why the second step earns its place</h2>
+          <p>Team-invite steps convert differently than solo-setup steps. Guests consistently separate the two rather than optimizing "steps to completion" as one number.</p>
+          <h2>What to measure instead</h2>
+          <p>Step-level drop-off, not blended activation — the aggregate number hides which step is actually the problem.</p>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <div class="composer">
+    <textarea class="composer__input" rows="1" placeholder="Ask a follow-up…"></textarea>
+    <button type="button" class="composer__send">Send</button>
+  </div>
+
+  <sc-if value="{{drawerOpen}}" hint-placeholder-val="{{false}}">
+    <div>
+      <div class="scrim" onClick="{{toggleDrawer}}"></div>
+      <div class="drawer">
+        <button type="button" class="drawer__new">+ New chat</button>
+        <button type="button" class="drawer__item drawer__item--active">Activation drop investigation</button>
+        <button type="button" class="drawer__item">Pricing page redesign brief</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const tab = this.state.tab ?? 'chat';
+    const sheetOpen = this.state.sheetOpen ?? false;
+    const drawerOpen = this.state.drawerOpen ?? false;
+    return {
+      isChat: tab === 'chat',
+      isArtifact: tab === 'artifact',
+      chatTabClass: 'mobile-tabs__tab' + (tab === 'chat' ? ' mobile-tabs__tab--active' : ''),
+      artifactTabClass: 'mobile-tabs__tab' + (tab === 'artifact' ? ' mobile-tabs__tab--active' : ''),
+      showChat: () => this.setState({ tab: 'chat' }),
+      showArtifact: () => this.setState({ tab: 'artifact' }),
+      sheetOpen,
+      toggleSheet: () => this.setState({ sheetOpen: !sheetOpen }),
+      drawerOpen,
+      toggleDrawer: () => this.setState({ drawerOpen: !drawerOpen }),
+    };
+  }
+}
+</script>
+</body>
+</html>

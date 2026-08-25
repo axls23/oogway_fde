@@ -3,13 +3,16 @@ import {
   type Artifact,
   type ChunkDetail,
   type ConfigResponse,
+  type CreateExtensionProposalRequest,
   type CreateSessionRequest,
   type ErrorEnvelope,
+  type ExtensionProposal,
   type HealthDeps,
   type PostMessageRequest,
   type Session,
   type SessionDetail,
   type SessionListResponse,
+  type UpdateSessionCapabilitiesRequest,
 } from "./types";
 
 /**
@@ -109,6 +112,38 @@ export const api = {
 
   getArtifact(id: string): Promise<Artifact> {
     return request<Artifact>(`/artifacts/${id}`);
+  },
+
+  updateSessionCapabilities(id: string, body: UpdateSessionCapabilitiesRequest): Promise<Session> {
+    return request<Session>(`/sessions/${id}/capabilities`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  listExtensionProposals(): Promise<{ items: ExtensionProposal[] }> {
+    return request<{ items: ExtensionProposal[] }>("/extension-proposals");
+  },
+
+  createExtensionProposal(
+    body: CreateExtensionProposalRequest,
+    sessionId?: string,
+  ): Promise<ExtensionProposal> {
+    const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+    return request<ExtensionProposal>(`/extension-proposals${qs}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateExtensionProposalStatus(
+    id: string,
+    status: ExtensionProposal["status"],
+  ): Promise<ExtensionProposal> {
+    return request<ExtensionProposal>(`/extension-proposals/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
   },
 };
 

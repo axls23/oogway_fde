@@ -21,6 +21,15 @@ src/
     Citations/       citation chips, expand-to-snippet (F2) — no second model call
     ArtifactViewer/   sandboxed iframe (HTML) + sanitized markdown renderer, preview/source toggle
     ProviderBadge/    reads GET /config, renders active provider + model
+    Capabilities/       ActiveCapabilities — reads config.capabilities (same
+                         GET /config payload), shows active skills/tools/
+                         plugins per root CLAUDE.md invariant #4
+    CapabilitiesSettings/  full-page settings view (App.tsx `view` state,
+                         no router): per-session skill toggles (PATCH
+                         /sessions/{id}/capabilities, live) and an extension
+                         proposal review queue (POST/PATCH /extension-
+                         proposals) — proposing/"approving" here never
+                         deploys anything, see the component's docstring
     StarterPrompts/    F6 cold-start prompts
   state/           session state, SSE connection lifecycle
 ```

@@ -21,6 +21,29 @@
   min-width: 0;
 }
 
+.app__header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.app__settings-toggle {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3em 0.75em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.app__settings-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .app__name {
   font-weight: 700;
   overflow: hidden;

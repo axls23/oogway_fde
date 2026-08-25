@@ -10,6 +10,13 @@ type Tab = "preview" | "source";
 interface ArtifactViewerProps {
   artifactId: string;
   onClose: () => void;
+  /**
+   * Bumped by the caller on every `artifact` SSE frame, including a repeat
+   * of an id already open (edit_artifact revises in place, so the id
+   * doesn't change). GET /artifacts/{id} has no ETag/version to key a
+   * refetch off of, so this is the signal that content may have changed.
+   */
+  refreshToken?: number;
 }
 
 /**
@@ -18,7 +25,7 @@ interface ArtifactViewerProps {
  * default, source tab read-only), copy (raw source) / download (.md or
  * .html file).
  */
-export function ArtifactViewer({ artifactId, onClose }: ArtifactViewerProps) {
+export function ArtifactViewer({ artifactId, onClose, refreshToken }: ArtifactViewerProps) {
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -47,7 +54,7 @@ export function ArtifactViewer({ artifactId, onClose }: ArtifactViewerProps) {
     return () => {
       cancelled = true;
     };
-  }, [artifactId]);
+  }, [artifactId, refreshToken]);
 
   const handleCopy = async () => {
     if (!artifact) return;

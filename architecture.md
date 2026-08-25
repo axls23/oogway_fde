@@ -50,7 +50,7 @@ The system must satisfy a set of constraints that pull against each other, and m
 │  agent  ·  Node + Pi SDK  ·:8100 │   │  db · Postgres 16         │
 │  ─ createAgentSession per turn   │   │      + pgvector           │
 │  ─ customTools: search_transcripts│   │  episodes, chunks,        │
-│                  create_artifact  │   │  sessions, messages,      │
+│    create_artifact, edit_artifact │   │  sessions, messages,      │
 │  ─ skills: ship30-essay,          │   │  citations, artifacts,    │
 │            artifact-html          │   │  ingest_runs              │
 │  ─ noTools: "builtin"             │   └───────────────────────────┘
@@ -344,7 +344,7 @@ const { session } = await createAgentSession({
   modelRuntime,
   resourceLoader: loader,
   noTools: "builtin",                                      // ← containment, see 8.5
-  customTools: [searchTranscripts, createArtifact],
+  customTools: [searchTranscripts, createArtifact, editArtifact],
   sessionManager: SessionManager.create("/app"),           // JSONL audit trail
   settingsManager: SettingsManager.inMemory({
     compaction: { enabled: true },
@@ -359,16 +359,19 @@ session.agent.state.messages = rehydrate(historyFromPostgres);
 
 ### 8.3 Tools
 
-Two custom tools, defined with `defineTool()` so their parameter schemas are typed and validated before the model's arguments reach our code.
+Three custom tools, defined with `defineTool()` so their parameter schemas are typed and validated before the model's arguments reach our code. Each is a thin wrapper around exactly one `api` endpoint — none expose a filesystem or shell primitive (§8.5, §10).
 
 | Tool | Parameters | Behaviour |
 |---|---|---|
 | `search_transcripts` | `query: string`, `k?: number` | HTTP POST to `api:8000/internal/retrieve`. Returns delimited chunk text labelled as untrusted data, plus chunk IDs which the agent echoes back for citation construction |
 | `create_artifact` | `kind: 'markdown' \| 'html'`, `title: string`, `content: string` | Returns the artifact to `api`, which sanitises and persists it before it reaches the browser |
+| `edit_artifact` | `artifact_id: string`, `title?: string`, `content: string` | HTTP PATCH to `api:8000/internal/artifacts/{id}`, full-replacement content. `api` verifies `artifact_id` belongs to the calling session before applying the update (routers/internal.py) — this is the only cross-turn state a tool call can target, and only by an id the model was handed on a prior turn (see the history note below), never a guessed one |
+
+`edit_artifact` exists because `create_artifact` alone left "make it shorter" / "add a section on X" follow-ups with no tool to call — the model would paste the revised content into the chat reply instead, which is exactly the failure mode `create_artifact` exists to avoid. It needs the target's `artifact_id` on a later turn, which the SSE `artifact` frame never round-trips into the model's own context (that frame goes to the browser, not back into `session.agent.state.messages`). `api`'s `services/turn.py` closes that gap by appending a one-line `[Artifact created — id: ..., title: "..."]` note to the *agent-facing copy* of any history turn that created or last edited an artifact — never to `MessageRow.content` itself, which `GET /sessions/{id}` serves verbatim as the chat transcript. The note is metadata for the next turn's tool call, not something a user should ever see in their own conversation.
 
 ### 8.4 Skills and routing
 
-Routing is **capability-scoped, not intent-classified.** There is no router model deciding which of several agents handles a turn. Instead, the agent has exactly two tools and a small set of skills, and the model chooses among them within a single session. This is the right shape at this scale: an intent classifier is another model call, another failure mode, and another thing to evaluate, in exchange for no capability the tool schema does not already provide.
+Routing is **capability-scoped, not intent-classified.** There is no router model deciding which of several agents handles a turn. Instead, the agent has exactly three tools and a small set of skills, and the model chooses among them within a single session. This is the right shape at this scale: an intent classifier is another model call, another failure mode, and another thing to evaluate, in exchange for no capability the tool schema does not already provide.
 
 Skills live in `.pi/skills/` and are discovered by `DefaultResourceLoader`:
 
@@ -430,6 +433,26 @@ Ollama is registered with Pi as a custom provider through `models.json` in the a
 | Secrets | Committed keys | `.env` git-ignored, `.env.example` carries safe placeholders only, no key ever logged; the agent transcripts folder is redacted before commit |
 | Database | Injection | Parameterised queries throughout via asyncpg; no string-built SQL |
 | Data residency | Transcript content leaving the machine unexpectedly | Local provider is the default, `PI_OFFLINE=1` in the agent container, no silent failover, active provider always visible |
+| Internal artifact write path | `edit_artifact` (or a compromised/hijacked tool call) overwrites an artifact outside the calling session | `PATCH /internal/artifacts/{id}` requires `session_id` in the body to match the row's own `session_id` or the request 404s (routers/internal.py) — the shared internal token proves "this is the agent service," not "this call is scoped to this session," so that check is explicit per-handler, not implied by the token |
+
+### 10.1 OWASP Top 10 for Agentic Applications (2026) mapping
+
+The table above predates that taxonomy; this maps this system's actual controls onto it (ASI01–ASI10) so a reviewer can check coverage against a standard vocabulary instead of just this repo's own threat table. "N/A" means the risk describes a system shape this one doesn't have (multi-agent handoff, autonomous background execution), not an unexamined gap.
+
+| # | Risk | Status | Where |
+|---|---|---|---|
+| ASI01 | Agent Goal Hijack | Mitigated | System prompt explicitly labels retrieved transcript excerpts as untrusted data and instructs the model to ignore embedded commands (§8.2). Blast radius is structurally capped even on a successful hijack: the only actions available are the three tools in §8.3, and citations still can't be forged (see ASI09) |
+| ASI02 | Tool Misuse & Exploitation | Mitigated — primary control | `noTools: "builtin"` plus a 3-tool allowlist (§8.5); every tool is a thin server-mediated wrapper around one `api` endpoint, not a general-purpose primitive the model could misuse into something else |
+| ASI03 | Identity & Privilege Abuse | Partial, documented | `AGENT_INTERNAL_TOKEN` is one static shared secret for the whole agent↔api boundary — it authenticates "this caller is the agent service," not "this call is authorized for this session." Per-session scoping is enforced explicitly in each handler that needs it (e.g. `edit_artifact`'s session_id check above), not by the token itself. Acceptable for this system's actual deployment shape (single-tenant, local-first, Compose-internal network only); would need real per-session credentials before this became multi-tenant |
+| ASI04 | Agentic Supply Chain Vulnerabilities | Mitigated | Pi extensions off by default (`AGENT_EXTENSIONS_ENABLED=false`); when enabled, a fail-closed allowlist keyed by path + content sha256 + declared tool names, checked at both CI time and session startup (`agent/.pi/extensions/manifest.json`, `capabilities.ts`, root CLAUDE.md invariant #4) |
+| ASI05 | Unexpected Code Execution (RCE) | Mitigated | Same mechanism as ASI02: no `read`/`bash`/`edit`/`write` tool exists in the session at all, so there's no code-execution primitive to be talked into misusing (§8.5) |
+| ASI06 | Memory & Context Poisoning | Partial | Long-term "memory" here is the transcript corpus, treated as untrusted and delimited on every retrieval. Short-term memory (conversation history) is replayed verbatim each turn per ADR-002; the new artifact-id note injected into that history (§8.3) is deliberately a fixed, structured one-liner rather than free text, to avoid adding a second injection surface on top of the model's own prior output |
+| ASI07 | Insecure Inter-Agent Communication | N/A | Single-agent architecture — no agent-to-agent handoff or inter-agent messaging exists anywhere in this system |
+| ASI08 | Cascading Failures | Partial | The one multi-call pipeline is Ship 30 (outline → per-section generation → deterministic assembly, §8.4/PRD F3): a bad intermediate section is caught by a validator with bounded repair before assembly, rather than trusted through to the artifact unchecked (`ship30.py`) |
+| ASI09 | Human-Agent Trust Exploitation | Mitigated — central design invariant | Root CLAUDE.md invariant #1: citations are built from retrieval metadata, never parsed from model prose. A hijacked or confidently-wrong model cannot fabricate a citation's guest or episode name because it never writes into that field — the exact mechanism this risk calls for |
+| ASI10 | Rogue Agents | Mitigated by architecture | ADR-002 (stateless per turn) plus no autonomous loop: every turn requires a fresh human message, and there is no standing goal an agent pursues across turns without a user back in the loop |
+
+Source: OWASP GenAI Security Project, [Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 **What the artifact viewer permits and blocks**
 

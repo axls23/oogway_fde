@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root {
+  --bg: #ffffff; --bg-elevated: #f9fafb; --fg: #18181b; --fg-muted: #52525b;
+  --border: #e4e4e7; --accent: #4338ca; --accent-fg: #ffffff;
+  --badge-bg: #eef2ff; --badge-fg: #3730a3; --badge-border: #c7d2fe; --badge-dot: #a1a1aa;
+}
+* , *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px; line-height: 1.5;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; }
+
+.app { display: flex; flex-direction: column; width: 1440px; height: 900px; overflow: hidden; }
+.app__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.app__name { font-weight: 700; }
+.provider-badge { display: inline-flex; align-items: center; gap: 0.4em; font-size: 0.85rem; font-weight: 600; color: var(--fg-muted); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; padding: 0.3em 0.75em; }
+.provider-badge__dot { width: 0.55em; height: 0.55em; border-radius: 50%; background: var(--badge-dot); }
+
+.app__body { flex: 1; display: grid; grid-template-columns: 18rem 1fr; min-height: 0; }
+.app__sessions { border-right: 1px solid var(--border); }
+.session-list { display: flex; flex-direction: column; height: 100%; padding: 0.75rem; gap: 0.75rem; }
+.session-list__new { background: var(--accent); color: var(--accent-fg); border-radius: 0.6rem; padding: 0.6rem 0.8rem; font-weight: 700; text-align: left; }
+.session-list__empty { color: var(--fg-muted); font-size: 0.9rem; padding: 0 0.25rem; }
+
+.app__main { display: flex; align-items: center; justify-content: center; height: 100%; }
+.chat-column__empty { width: 100%; max-width: 48rem; }
+
+.starter-prompts { padding: 1.5rem 1rem; max-width: 48rem; margin: 0 auto; }
+.starter-prompts__lede { color: var(--fg-muted); margin: 0 0 1rem; text-align: center; }
+.starter-prompts__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.starter-prompt { display: flex; flex-direction: column; gap: 0.35rem; text-align: left; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; }
+.starter-prompt:hover { border-color: var(--accent); }
+.starter-prompt__title { font-weight: 700; color: var(--fg); }
+.starter-prompt__description { font-size: 0.88rem; color: var(--fg-muted); }
+
+.composer { display: flex; gap: 0.5rem; align-items: flex-end; padding: 0.75rem 1rem; border-top: 1px solid var(--border); max-width: 52rem; margin: 1.5rem auto 0; width: 100%; }
+.composer__input { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.6rem 0.8rem; background: var(--bg-elevated); color: var(--fg); min-height: 2.5rem; }
+.composer__send { background: var(--accent); color: var(--accent-fg); border-radius: 0.75rem; padding: 0.6rem 1.1rem; font-weight: 700; flex-shrink: 0; }
+</style>
+</helmet>
+
+<div class="app">
+  <header class="app__header">
+    <span class="app__name">The Lenny Growth Assistant</span>
+    <span class="provider-badge" role="status">
+      <span class="provider-badge__dot" aria-hidden="true"></span>
+      Checking provider…
+    </span>
+  </header>
+
+  <div class="app__body">
+    <aside class="app__sessions">
+      <div class="session-list">
+        <button type="button" class="session-list__new">+ New chat</button>
+        <p class="session-list__empty">No sessions yet.</p>
+      </div>
+    </aside>
+
+    <main class="app__main">
+      <div class="chat-column__empty">
+        <div class="starter-prompts">
+          <p class="starter-prompts__lede">Start with a capability, or just type your own question below.</p>
+          <div class="starter-prompts__grid">
+            <button type="button" class="starter-prompt" onClick="{{pickAsk}}">
+              <span class="starter-prompt__title">Ask a grounded question</span>
+              <span class="starter-prompt__description">Get an answer with named sources you can spot-check.</span>
+            </button>
+            <button type="button" class="starter-prompt" onClick="{{pickShip}}">
+              <span class="starter-prompt__title">Draft a Ship 30 essay</span>
+              <span class="starter-prompt__description">A structured, staged-progress essay grounded in real operator experience.</span>
+            </button>
+            <button type="button" class="starter-prompt" onClick="{{pickOnePager}}">
+              <span class="starter-prompt__title">Generate a one-pager</span>
+              <span class="starter-prompt__description">A sandboxed HTML artifact you can preview, copy, or download.</span>
+            </button>
+          </div>
+        </div>
+        <div class="composer">
+          <textarea class="composer__input" rows="1" placeholder="Ask your own question…">{{composerText}}</textarea>
+          <button type="button" class="composer__send">Send</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const set = (text) => () => this.setState({ text });
+    return {
+      composerText: this.state.text ?? '',
+      pickAsk: set('Our activation rate dropped after we added a second onboarding step. What do operators say about this?'),
+      pickShip: set('Write a Ship 30 essay on why activation matters more than acquisition for early-stage growth.'),
+      pickOnePager: set("Generate a one-page HTML brief summarizing what Lenny's guests say about pricing page redesigns."),
+    };
+  }
+}
+</script>
+</body>
+</html>

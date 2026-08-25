@@ -20,8 +20,21 @@ API shapes — derive code from it, don't invent alongside it.
    unreachable, return a structured `503` with `retryable: true`. Never
    fall back to the other provider automatically. (ADR-005)
 4. **The Pi session is created with `noTools: "builtin"`.** Only
-   `search_transcripts` and `create_artifact` are available to the model.
-   No `read`, `bash`, `edit`, `write`. (§8.5)
+   `search_transcripts`, `create_artifact`, and `edit_artifact` are
+   available to the model — three narrow, server-mediated tools, each a
+   thin wrapper around one `api` endpoint, none of which expose a
+   filesystem or shell primitive. No `read`, `bash`, `edit`, `write`.
+   (§8.5) Pi extensions (`.pi/extensions/`)
+   are arbitrary in-process code that can register any tool with no sandbox
+   of their own, so they are off by default (`AGENT_EXTENSIONS_ENABLED=false`)
+   and, when explicitly enabled, every loaded extension must be pinned in
+   `agent/.pi/extensions/manifest.json` by exact path, content sha256, and
+   declared tool names — anything unlisted, or any drift from what's
+   approved, fails session construction closed rather than loading a
+   subset. Checked both at CI time (`tools/check_extension_manifest.py`)
+   and at runtime startup (`agent/src/capabilities.ts`). Skills
+   (`.pi/skills/*/SKILL.md`) are plain prompt text with no code and are not
+   covered by this — they're always discoverable.
 5. **The artifact iframe never gains `allow-same-origin`.** `sandbox`
    stays `"allow-scripts"` only. (ADR-004)
 6. **Postgres is the only store ever read for application state.** Pi's

@@ -16,10 +16,16 @@ app/
     models.py         SQLAlchemy models mirroring contracts/schema.sql exactly
     migrations/        Alembic
   routers/
-    sessions.py        /sessions, /sessions/{id}, /sessions/{id}/messages
-    health.py          /health, /health/deps, /config
+    sessions.py        /sessions, /sessions/{id}, /sessions/{id}/messages,
+                        /sessions/{id}/capabilities (PATCH — per-session skill
+                        allowlist, root CLAUDE.md invariant #4)
+    health.py          /health, /health/deps, /config (proxies agent's
+                        GET /capabilities into ConfigResponse.capabilities)
     artifacts.py        /artifacts/{id}, /chunks/{id}
-    internal.py         /internal/retrieve (shared-secret guarded)
+    internal.py         /internal/retrieve, /internal/artifacts (shared-secret guarded)
+    extension_proposals.py  /extension-proposals — a review QUEUE for drafted
+                             agent/.pi/extensions/ entries, never a deploy
+                             path; see its module docstring
   services/
     condense.py         query condensation (one low-temp call, both forms logged)
     retrieval.py         embed -> top-k -> session boost -> relevance floor -> top 4
