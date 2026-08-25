@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Accepted for the v1 build |
-| **Companion docs** | `PRD.md` (user, scope, acceptance criteria), `design.md` (UI/UX), `README.md` (run and troubleshoot) |
+| **Companion docs** | `PRD.md` (user, scope, acceptance criteria) and `design.md` (UI/UX), alongside this file in `docs/deliverables/`; `README.md` (run and troubleshoot) at the repository root |
 | **Build mode** | Implemented by Claude Code under human specification and review — see §12, which is load-bearing rather than incidental |
 | **Scope of this document** | Component boundaries, deployment topology, database schema, API contracts, ingestion and retrieval flow, agent integration and routing, model toggle, security model, observability, build-time architecture, and the architecture decisions behind them |
 
@@ -913,7 +913,9 @@ lenny-growth-assistant/
 │   ├── CLAUDE.md
 │   ├── ingest.py  chunker.py
 │   └── seed/index.sql.gz
-├── docs/vendor/pi-sdk.md         # pinned copy of the Pi SDK reference
+├── docs/
+│   ├── deliverables/             # this file, PRD.md, design.md
+│   └── vendor/pi-sdk.md          # pinned copy of the Pi SDK reference
 ├── tests/eval/                   # 20 in-corpus + 5 out-of-corpus questions
 └── agent-transcripts/            # deliverable #6, redacted
 ```
