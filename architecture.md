@@ -9,6 +9,29 @@
 
 ---
 
+## 0. Diagram index
+
+For a reviewer coming to this codebase cold, these nine diagrams are the
+fastest path in. Each is drawn from the code as it stands rather than from
+the original design intent, and node labels carry the owning file so a
+diagram doubles as a map into the repository.
+
+| | Diagram | Answers |
+|---|---|---|
+| §2 | Component boundaries | What are the moving parts, and what talks to what over which protocol |
+| §2.1 | **A turn, end to end** | The spine — start here. What actually happens between a keystroke and a cited answer |
+| §4 | Entity relationships | What is persisted, and which foreign key carries which guarantee |
+| §6 | Ingestion pipeline | How a transcript file becomes a searchable, citable chunk |
+| §7 | Retrieval pipeline | How a question becomes four chunks — and when it becomes an abstention instead |
+| §8.2 | Agent session composition | What the model is handed, and what it is structurally prevented from reaching |
+| §8.4 | Ship 30 pipeline | How a 1,250-word essay gets its formatting guarantees from Python, not from the model |
+| §10 | Trust boundaries | Which data is untrusted, and where each control sits |
+| §12.4 | Contract derivation | Which artifacts are source of truth, which are derived, and which gate catches drift |
+
+If you read only one, read §2.1.
+
+---
+
 ## 1. Context and forces
 
 The system must satisfy a set of constraints that pull against each other, and most of the design below is the resolution of those tensions rather than a free choice.
@@ -30,40 +53,40 @@ The system must satisfy a set of constraints that pull against each other, and m
 
 ## 2. Component boundaries
 
+```mermaid
+flowchart TB
+    subgraph BROWSER["Browser"]
+        WEB["<b>web</b> — React + Vite — :5173<br/><br/>state/useChatTurn.ts — per-turn state machine<br/>sse/parser.ts — frame decoding<br/>components/Chat, Citations, ArtifactViewer<br/>components/ProviderBadge, CapabilitiesSettings"]
+    end
+
+    subgraph COMPOSE["Docker Compose network"]
+        API["<b>api</b> — FastAPI — :8000 — system of record<br/><br/>routers/ sessions, health, artifacts, internal<br/>services/turn.py — turn orchestration + SSE fan-out<br/>services/ condense, retrieval, ship30, sanitize<br/>services/ agent_client, sse_frames<br/>obs/tracing.py — trace_id minted at the edge"]
+        AGENT["<b>agent</b> — Node 22 + Pi SDK — :8100<br/><br/>src/server.ts — POST /turn, GET /healthz<br/>src/session.ts — createAgentSession per turn<br/>src/events.ts — Pi events to wire events<br/>src/capabilities.ts — extension allowlist, fail-closed<br/>src/tools/ — search-transcripts, create-artifact, edit-artifact"]
+        DB[("<b>db</b> — Postgres 16 + pgvector<br/><br/>episodes, chunks, sessions, messages<br/>citations, artifacts, extension_proposals<br/>ingest_runs")]
+    end
+
+    OLLAMA["<b>ollama</b> — host — :11434<br/><br/>qwen2.5:7b-instruct — generation<br/>nomic-embed-text — 768-d embeddings"]
+    INGEST["<b>ingest</b> — one-shot CLI<br/><br/>ingest.py, chunker.py, embeddings.py<br/>seed/index.sql.gz restored on first boot"]
+
+    WEB -->|"REST + <b>SSE</b><br/>text/event-stream"| API
+    API -->|"POST /turn<br/><b>NDJSON</b> stream<br/>X-Trace-Id"| AGENT
+    API -->|asyncpg| DB
+    AGENT -.->|"POST /internal/retrieve<br/>POST /internal/artifacts<br/>shared-secret header"| API
+    API -->|"embed + condense"| OLLAMA
+    AGENT -->|generation| OLLAMA
+    INGEST -->|"episodes + chunks"| DB
+    INGEST -->|embed| OLLAMA
+    WEB -. "never — all traffic is<br/>proxied through api" .- AGENT
+
+    linkStyle 8 stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 5
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  web  ·  React + Vite  ·  :5173                                  │
-│  chat · session list · citation chips · artifact viewer (iframe) │
-└───────────────────────────┬──────────────────────────────────────┘
-                            │ REST + SSE
-┌───────────────────────────▼──────────────────────────────────────┐
-│  api  ·  FastAPI (Python)  ·  :8000                              │
-│  ─ session & message lifecycle, persistence  (system of record)  │
-│  ─ query condensation                                            │
-│  ─ /retrieve  (vector search, session boost, relevance floor)    │
-│  ─ artifact persistence + sanitisation                           │
-│  ─ /health, /health/deps, /config                                │
-│  ─ SSE fan-out to the browser                                    │
-└───────┬──────────────────────────────────────┬───────────────────┘
-        │ HTTP + SSE                           │ asyncpg
-┌───────▼──────────────────────────┐   ┌───────▼───────────────────┐
-│  agent  ·  Node + Pi SDK  ·:8100 │   │  db · Postgres 16         │
-│  ─ createAgentSession per turn   │   │      + pgvector           │
-│  ─ customTools: search_transcripts│   │  episodes, chunks,        │
-│    create_artifact, edit_artifact │   │  sessions, messages,      │
-│  ─ skills: ship30-essay,          │   │  citations, artifacts,    │
-│            artifact-html          │   │  ingest_runs              │
-│  ─ noTools: "builtin"             │   └───────────────────────────┘
-│  ─ event stream → SSE stages      │
-└───────┬──────────────────────────┘
-        │ HTTP (localhost, internal)
-        └──► api:8000/internal/retrieve
-                            
-┌──────────────────────────────────────────────────────────────────┐
-│  ollama  ·  host or container  ·  :11434                         │
-│  qwen2.5:7b-instruct (generation) · nomic-embed-text (embedding) │
-└──────────────────────────────────────────────────────────────────┘
-```
+
+Two hops, two different framings, and the difference is load-bearing.
+`agent → api` is newline-delimited JSON — `application/x-ndjson`, one event
+object per line (`agent/src/server.ts`). `api → web` is Server-Sent Events
+(`api/app/services/sse_frames.py`). `api` is a translator rather than a
+proxy: it is where citations are constructed, artifacts are sanitised, and
+errors are shaped into the one envelope.
 
 ### Why these seams
 
@@ -74,6 +97,80 @@ The system must satisfy a set of constraints that pull against each other, and m
 **The frontend never talks to `agent`.** All traffic is proxied through `api` so that persistence, tracing and error shaping happen in one place.
 
 **The seams double as work-partition boundaries.** Because the system is implemented by a coding agent working in bounded sessions rather than by a person holding the whole design in their head, each service must be buildable and testable against a written contract without the others being finished. `agent` is developed against a stub `/internal/retrieve`; `web` is developed against the OpenAPI schema and a recorded SSE fixture; `ingest` is developed against the DDL alone. A design that required all four to exist before any could be tested would be a poor design for a human team and an unworkable one here.
+
+### 2.1 A turn, end to end
+
+The single most useful diagram for a reviewer: everything else in this
+document is a detail hanging off one of these steps. Participants map to
+files — `useChatTurn` is `web/src/state/useChatTurn.ts`, `turn.py` is
+`api/app/services/turn.py`, `session.ts` is `agent/src/session.ts`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant W as web<br/>useChatTurn
+    participant T as api<br/>turn.py
+    participant DB as Postgres
+    participant OL as Ollama
+    participant AG as agent<br/>server.ts
+    participant PI as Pi session<br/>session.ts
+
+    W->>T: POST /sessions/{id}/messages
+    Note over T: trace_id minted here, carried through every hop
+    T->>DB: load history, insert user message
+    T->>OL: condense to a standalone query (temp 0)
+    OL-->>T: rewritten_query
+    T->>DB: persist rewritten_query on the message
+
+    rect rgb(240, 244, 250)
+    Note over T,DB: services/retrieval.py — see §7
+    par embedding side
+        T->>OL: embed condensed query
+    and lexical side
+        T->>DB: full-text top-k, GIN on chunks.text_search
+    end
+    T->>DB: cosine top-k, exact scan over chunks.embedding
+    T->>T: session boost, guest boost, RRF fuse, relevance floor
+    end
+
+    alt top score below RETRIEVAL_FLOOR
+        T-->>W: token(abstention text)
+        T-->>W: done(abstained=true)
+        Note right of T: the model is never called at all — AC3
+    else floor cleared
+        T-->>W: citation frames, built from retrieval metadata
+        T->>AG: POST /turn — history, condensed query, enabled_skills
+        AG->>PI: createAgentSession(noTools "builtin", 3 custom tools)
+        PI->>AG: tool call search_transcripts
+        AG->>T: POST /internal/retrieve, shared-secret header
+        T-->>AG: ranked chunks, labelled untrusted
+        AG-->>T: {"type":"citation"} — deduped against the frames above
+        loop streamed prose
+            PI-->>AG: message_update / text_delta
+            AG-->>T: {"type":"token"}
+            T-->>W: event token
+        end
+        opt document requested
+            PI->>AG: create_artifact or edit_artifact
+            AG->>T: POST /internal/artifacts — sanitise, then persist
+            T-->>AG: artifact_id
+            AG-->>T: {"type":"artifact"}
+            T-->>W: event artifact
+        end
+        T->>DB: persist assistant message, citations, artifact link
+        T-->>W: event done(message_id, latency_ms)
+    end
+```
+
+**Why the ordering is what it is.** Condensation and retrieval both make a
+real Ollama call, and both happen *before* the `StreamingResponse` is
+constructed in `routers/sessions.py`. So "Ollama is down" surfaces as a
+clean structured `503` with the error envelope, not a half-open SSE stream.
+Once the response has started, headers are committed and a provider failure
+can no longer become a 503 — it becomes an in-band `error` frame with
+`partial: true` instead. That split is the implementation of the timeout
+row in §11, and it is why the diagram shows the abstain branch resolving
+before the agent is ever contacted.
 
 ---
 
@@ -101,6 +198,113 @@ Ollama runs on the host and is reached via `host.docker.internal:11434`, configu
 ---
 
 ## 4. Database schema
+
+```mermaid
+erDiagram
+    episodes ||--o{ chunks : "chunked into"
+    chunks   ||--o{ citations : "cited as"
+    sessions ||--o{ messages : "contains"
+    sessions ||--o{ artifacts : "owns"
+    messages ||--o{ citations : "grounded by"
+    messages ||--o| artifacts : "produced"
+    sessions ||--o{ extension_proposals : "proposed in"
+
+    episodes {
+        bigserial id PK
+        text guest
+        text title
+        text youtube_url
+        text video_id
+        date publish_date
+        integer duration_seconds
+        text source_path UK
+        text content_hash "re-ingest idempotency"
+        timestamptz ingested_at
+    }
+    chunks {
+        bigserial id PK
+        bigint episode_id FK
+        integer ordinal
+        text text "stored beside the vector — flow F2 is one indexed read"
+        integer token_count
+        integer start_seconds "nearest preceding speaker turn"
+        vector embedding "768-d, exact scan, no ANN index"
+        tsvector text_search "GENERATED, GIN indexed — lexical half of §7"
+    }
+    sessions {
+        uuid id PK
+        text title
+        text provider
+        text model
+        text user_ref
+        text_array enabled_skills "TEXT[] — per-session skill allowlist"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    messages {
+        uuid id PK
+        uuid session_id FK
+        text role "user | assistant | system"
+        text content "served verbatim as the chat transcript"
+        text rewritten_query "the condensed query — not recoverable later"
+        text trace_id
+        text provider
+        text model
+        integer latency_ms
+        integer token_in
+        integer token_out
+        boolean abstained "AC3 outcome, per turn"
+        timestamptz created_at
+    }
+    citations {
+        bigserial id PK
+        uuid message_id FK
+        bigint chunk_id FK
+        integer rank
+        real score
+    }
+    artifacts {
+        uuid id PK
+        uuid session_id FK "edit_artifact is scoped by this"
+        uuid message_id FK
+        text kind "markdown | html"
+        text title
+        text content
+        boolean sanitized
+        timestamptz created_at
+    }
+    extension_proposals {
+        uuid id PK
+        uuid session_id FK
+        text title
+        text description
+        text_array tool_names "TEXT[] — tools this extension may register"
+        text code
+        text sha256 "pinned in the manifest on approval"
+        text status "pending | approved | rejected"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    ingest_runs {
+        bigserial id PK
+        timestamptz started_at
+        timestamptz finished_at
+        integer episode_count
+        integer chunk_count
+        text embed_model
+        text status "running | ok | failed | seeded"
+    }
+```
+
+`ingest_runs` stands alone by design — it has no foreign key into the corpus
+because its job is to record *that* a run happened (including the `seeded`
+marker row that makes first-boot restore idempotent), not to own rows.
+
+The DDL below is the v1 statement of this schema and is kept for the design
+notes attached to it. `contracts/schema.sql` is the authority and has since
+gained `chunks.start_seconds`, the generated `chunks.text_search` column and
+its GIN index, `sessions.enabled_skills`, and the `extension_proposals`
+table — all of which the diagram above reflects.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -274,22 +478,27 @@ The `stage` frame is what makes the Ship 30 flow (F3) legible rather than a two-
 
 ## 6. Ingestion flow
 
+```mermaid
+flowchart TD
+    SRC["episodes/{guest}/transcript.md"] --> FM["parse YAML frontmatter<br/>guest, title, youtube_url, video_id,<br/>publish_date, duration_seconds"]
+    FM --> HASH{"content_hash<br/>unchanged?"}
+    HASH -->|yes| SKIP["skip — nothing to re-embed"]
+    HASH -->|no| EP["upsert episodes row"]
+    EP --> NORM["normalise body<br/>strip speaker-label noise, collapse whitespace"]
+    NORM --> CH["chunk — chunker.py<br/>~800 tokens, 15% overlap,<br/>split on speaker turns where present"]
+    CH --> EMB["embed via nomic-embed-text, batched<br/>'search_document: ' prefix — embeddings.py"]
+    EMB --> UP["replace chunks for this episode<br/>text_search generated by Postgres"]
+    UP --> RUN["ingest_runs row — status ok"]
+    SKIP --> RUN
+    NORM -.->|"malformed transcript"| LOG["log, skip, count — the run continues"]
+    LOG --> RUN
 ```
-episodes/{guest}/transcript.md
-        │
-        ├─ parse YAML frontmatter ──► episodes row (guest, title, youtube_url,
-        │                                           video_id, publish_date,
-        │                                           duration_seconds, content_hash)
-        ├─ skip if content_hash unchanged
-        │
-        ├─ normalise body: strip speaker-label noise, collapse whitespace
-        │
-        ├─ chunk: ~800 tokens, 15% overlap, split on speaker turns where present
-        │
-        ├─ embed via Ollama nomic-embed-text (768-d), batched
-        │
-        └─ upsert chunks  ──►  ingest_runs row (status ok)
-```
+
+The asymmetric prefixes matter and are easy to lose in a refactor: the
+corpus side is embedded with `search_document: ` here, the query side with
+`search_query: ` in `api/app/services/retrieval.py`. Mixing them silently
+degrades every score in §7, which is why both constants carry a comment
+pointing at the other.
 
 Chunking is fixed-size rather than semantic. Podcast speech is discursive and has no section headers to exploit; semantic chunking would add a model call per document for a gain the evaluation set cannot currently detect. Overlap at 15% preserves answers that straddle a boundary, which is common when a guest builds an argument across several turns.
 
@@ -301,24 +510,44 @@ Run with `make ingest` (full corpus) or `make ingest EPISODES=60` (subset, selec
 
 ## 7. Retrieval flow
 
+```mermaid
+flowchart TD
+    Q["user message + last N turns"] --> C["<b>1</b> condense to a standalone query<br/>services/condense.py — temp 0, one line<br/>both raw and condensed forms persisted"]
+
+    C --> E["<b>2a</b> embed_query<br/>nomic-embed-text, 'search_query: ' prefix"]
+    C --> F["<b>2b</b> _top_k_by_fulltext<br/>websearch_to_tsquery, OR-joined terms<br/>ranked by ts_rank_cd, GIN index"]
+
+    E --> K["<b>3</b> _top_k_by_cosine — k=8<br/>exact sequential scan, no ANN index"]
+    K --> SB["<b>4a</b> session boost +0.05<br/>episodes already cited in this session"]
+    SB --> GB["<b>4b</b> guest-name boost +0.03<br/>query names a guest, tokens ≥ 4 chars"]
+
+    GB --> FLOOR{"<b>5</b> relevance floor<br/>max boosted cosine ≥ 0.68?"}
+    GB --> RRF["<b>4c</b> reciprocal_rank_fusion, k=60<br/>re-orders candidates only —<br/>never adds a chunk, never feeds the floor"]
+    F --> RRF
+
+    FLOOR -->|no| AB["<b>abstain</b><br/>empty chunk list, model never called<br/>named gap + nearest adjacent topics"]
+    FLOOR -->|yes| TOP["<b>6</b> take top 4 in fused order<br/>text, score, episode metadata"]
+    RRF -.->|"ranked_override"| TOP
+
+    TOP --> CIT["api writes the citation frames<br/>from this metadata — never from model prose"]
+
+    style FLOOR fill:#fdebd0,stroke:#b9770e,stroke-width:2px
+    style AB fill:#fadbd8,stroke:#c0392b
+    style CIT fill:#d5f5e3,stroke:#1e8449
 ```
-user message + last N turns
-        │
-        ├─ [1] condense ──► standalone query        (model call, temp 0, one line)
-        │        both raw and condensed forms persisted on messages
-        │
-        ├─ [2] embed condensed query                (nomic-embed-text)
-        │
-        ├─ [3] cosine top-k = 8 over chunks         (ivfflat)
-        │
-        ├─ [4] session boost: +0.05 to chunks from episodes already cited
-        │        in this session, capped so a genuine topic change can escape
-        │
-        ├─ [5] relevance floor: if max(score) < RETRIEVAL_FLOOR → abstain
-        │        short-circuits before the model sees any context
-        │
-        └─ [6] return top 4 with text, score, and episode metadata
-```
+
+**2a and 2b run concurrently.** The full-text query does not depend on the
+embedding, so `asyncio.gather` overlaps one round trip to Ollama with one to
+Postgres — a real latency win, not a stylistic one.
+
+**The fusion never touches the abstain decision.** RRF combines two
+*rankings*, not two *scores*, so there is no principled way to compare a
+fused score against a cosine threshold. `apply_floor` therefore always reads
+the boosted cosine scores, and takes the fused order only as a
+`ranked_override` for selecting the final four. The consequence is the one
+that matters: fusion can change *which* four chunks are cited, but it can
+never rescue a turn that should have abstained, and it can never introduce a
+chunk that was not already a cosine nearest neighbour.
 
 **Step 1 is the highest-value component in the system.** Flow F1 is roughly 55% of turns and its follow-ups are pronominal — *"what about B2B?"*, *"expand on that"*. Embedding those directly returns noise, and the failure is invisible on turn one and obvious on turn three. Both query forms are logged so retrieval failures are diagnosable after the fact.
 
@@ -367,6 +596,50 @@ session.agent.state.messages = rehydrate(historyFromPostgres);
 
 `retry` gives bounded resilience against transient Ollama failures without any custom retry code. `compaction` protects long sessions from exceeding the local model's context window. Both are configuration, not code.
 
+What that call actually assembles, and where each input is constrained:
+
+```mermaid
+flowchart LR
+    subgraph IN["Per-turn inputs from api"]
+        H["history rows<br/>rehydrated from Postgres — ADR-002"]
+        QQ["condensed query"]
+        SK["enabled_skills<br/>sessions.enabled_skills"]
+    end
+
+    subgraph BUILD["agent/src/session.ts"]
+        MR["ModelRuntime.create()<br/>PI_OFFLINE=1, no network refresh"]
+        RL["DefaultResourceLoader<br/>cwd /app, systemPromptOverride"]
+        CAP["capabilities.ts<br/>extension manifest check"]
+        CAS["createAgentSession"]
+    end
+
+    subgraph SESS["The session the model actually gets"]
+        NT["noTools 'builtin'<br/>no read, bash, edit, write"]
+        CT["customTools<br/>search_transcripts<br/>create_artifact<br/>edit_artifact"]
+        SKL[".pi/skills<br/>ship30-essay<br/>artifact-html"]
+        EXT["extensions<br/>off unless AGENT_EXTENSIONS_ENABLED"]
+    end
+
+    H --> CAS
+    QQ --> CAS
+    SK --> RL
+    MR --> CAS
+    RL --> CAS
+    CAP -->|"pinned by path + sha256 + declared tool names<br/>any drift fails session construction"| EXT
+    CAS --> NT
+    CAS --> CT
+    RL --> SKL
+    CAS --> EXT
+
+    style NT fill:#d5f5e3,stroke:#1e8449,stroke-width:2px
+    style EXT fill:#fdebd0,stroke:#b9770e
+```
+
+Skills are plain prompt text with no code, so they widen what the model
+*says* and never what it *can do*. Extensions are arbitrary in-process code
+that can register any tool, which is why they sit behind the fail-closed
+manifest rather than beside the skills.
+
 ### 8.3 Tools
 
 Three custom tools, defined with `defineTool()` so their parameter schemas are typed and validated before the model's arguments reach our code. Each is a thin wrapper around exactly one `api` endpoint — none expose a filesystem or shell primitive (§8.5, §10).
@@ -392,20 +665,56 @@ Skills live in `.pi/skills/` and are discovered by `DefaultResourceLoader`:
 
 **The Ship 30 pipeline is orchestrated in Python, not by the model.** The skill produces the outline and the section prose; `api` assembles the document, then validates it — word count within 1,250 ± 100, at least four headings, at least three distinct cited sources, no empty sections — and issues a bounded repair pass against only the failing section. Formatting guarantees are therefore properties of the code, which is what makes acceptance criterion AC7 reproducible on a 7B model.
 
-**Event mapping.** Pi's event stream drives the SSE `stage` frames:
+```mermaid
+flowchart TD
+    R["retrieve a wider set<br/>ship30.py passes a larger return_n"] --> OUT["_generate_outline<br/>stage outlining"]
+    OUT --> PAR["_parse_outline<br/>hook, 4–6 sections with chunk_ids, takeaway<br/>chunk_ids outside the retrieved set are rejected"]
+    PAR --> SEC["_generate_section, one scoped call per heading<br/>stage drafting — 'section i of n'"]
+    SEC --> ASM["_assemble<br/>stage assembling"]
+    ASM --> VAL{"validate()<br/>1250 ± 100 words<br/>≥ 4 headings<br/>≥ 3 distinct sources<br/>no empty section"}
+    VAL -->|pass| ART["create_artifact"]
+    VAL -->|fail| REP["bounded repair — regenerate ONLY<br/>the offending section, at most once"]
+    REP --> VAL2{"validate() again"}
+    VAL2 --> ART
+    ART --> FRAME["artifact SSE frame to the browser"]
 
-| Pi event | SSE frame |
-|---|---|
-| `agent_start` | `stage: thinking` |
-| `tool_execution_start` (`search_transcripts`) | `stage: retrieving` |
-| `tool_execution_end` | `citation` frames, one per returned chunk |
-| `message_update` / `text_delta` | `token` |
-| `turn_end` | `stage: drafting`, with section progress for F3 |
-| `agent_end` | `done` |
+    style VAL fill:#fdebd0,stroke:#b9770e,stroke-width:2px
+    style REP fill:#fdebd0,stroke:#b9770e
+```
+
+The repair is deliberately bounded to one pass over one section rather than
+a retry loop over the whole document. An unbounded loop on a 7B model is how
+a multi-call pipeline turns a single weak section into a cascading failure —
+the risk ASI08 names in §10.1 — and the validator's report is returned
+alongside the artifact either way, so a section that still fails is visible
+rather than silently shipped.
+
+**Event mapping.** Pi's event stream drives the frames the browser sees, but
+it does so across two translations — `agent/src/events.ts` turns a Pi event
+into a wire event, and `api/app/services/turn.py` turns a wire event into an
+SSE frame. Some frames have no Pi event behind them at all.
+
+| Pi event | Wire event from `agent` | SSE frame from `api` |
+|---|---|---|
+| `agent_start` | `stage: thinking` | `stage` |
+| `tool_execution_start` — `search_transcripts` | `stage: retrieving` | `stage` |
+| `tool_execution_start` — `create_artifact` / `edit_artifact` | `stage: assembling` | `stage` |
+| `tool_execution_end` — `search_transcripts` | `citation`, one per returned chunk; suppressed if the call abstained or returned nothing | `citation`, deduped against the frames `api` already emitted from its own retrieval |
+| `tool_execution_end` — artifact tools | `artifact` with the `artifact_id` `api` assigned at persist time | `artifact` |
+| `tool_execution_end` — artifact tools, `isError` | `error` `ARTIFACT_TOOL_FAILED`, `partial: true` | `error` — annotates the turn, does not abort it |
+| `message_update` / `text_delta` | `token` | `token` |
+| `turn_end` | `stage: drafting`, `detail: null` | `stage` — `api` fills `detail` (`"section 3 of 6"`) for Ship 30, which it orchestrates and a single `/turn` call cannot see |
+| `agent_end`, `turn_start`, compaction, auto-retry | *(none)* | — |
+| *(no Pi event)* | — | `done`, written by `api` once the stream closes, carrying `message_id` and `latency_ms` |
+
+A tool failure on `search_transcripts` is deliberately silent — the model can
+simply call it again. A failure on the artifact tools is not: without a frame
+the browser would get no signal beyond whatever the model happened to say in
+prose, which is the "swallowed error" pattern the root `CLAUDE.md` forbids.
 
 ### 8.5 Containment
 
-`noTools: "builtin"` disables Pi's default `read`, `bash`, `edit` and `write` tools while keeping our two custom tools enabled. This matters more than it looks: the corpus is untrusted text that goes into the model's context on every turn, so a prompt-injection payload embedded in a transcript is a realistic threat. An agent with no filesystem or shell tool cannot be talked into using one. The container additionally runs as a non-root user with a read-only root filesystem except for the session volume.
+`noTools: "builtin"` disables Pi's default `read`, `bash`, `edit` and `write` tools while keeping our three custom tools enabled. This matters more than it looks: the corpus is untrusted text that goes into the model's context on every turn, so a prompt-injection payload embedded in a transcript is a realistic threat. An agent with no filesystem or shell tool cannot be talked into using one. The container additionally runs as a non-root user with a read-only root filesystem except for the session volume.
 
 ---
 
@@ -433,6 +742,58 @@ Ollama is registered with Pi as a custom provider through `models.json` in the a
 ---
 
 ## 10. Security model
+
+Three things in this system are untrusted, and each is untrusted for a
+different reason: the corpus (third-party text that enters the model's
+context), the model's output (a 7B model, assumed both fallible and
+hijackable), and generated HTML (code that will be rendered in a browser).
+The controls are placed at the boundaries between them.
+
+```mermaid
+flowchart TB
+    subgraph Z1["Untrusted — third-party transcript text"]
+        CORP["chunks.text<br/>retrieved into context every turn"]
+    end
+
+    subgraph Z2["Semi-trusted — the model"]
+        LLM["qwen2.5:7b-instruct / claude<br/>assumed fallible and hijackable"]
+    end
+
+    subgraph Z3["Untrusted — model output"]
+        PROSE["prose tokens"]
+        HTML["generated HTML / markdown"]
+    end
+
+    subgraph Z4["Trusted — api, Python"]
+        RET["retrieval.py<br/>floor + ranked metadata"]
+        SAN["sanitize.py"]
+        CITE["citation frames"]
+    end
+
+    subgraph Z5["Browser"]
+        CHAT["chat transcript"]
+        IFRAME["srcdoc iframe<br/>sandbox 'allow-scripts' only<br/>no allow-same-origin — ADR-004"]
+    end
+
+    CORP -->|"delimited, labelled untrusted<br/>tool allowlist has no fs or shell — §8.5"| LLM
+    LLM --> PROSE
+    LLM --> HTML
+    PROSE --> CHAT
+    HTML -->|"allowlisted tags + attrs<br/>raw-HTML path disabled"| SAN
+    SAN --> IFRAME
+    RET -->|"guest and episode names come from here,<br/>never from model output"| CITE
+    CITE --> CHAT
+    LLM -. "no path into a citation payload" .- CITE
+
+    style CITE fill:#d5f5e3,stroke:#1e8449,stroke-width:2px
+    style IFRAME fill:#d5f5e3,stroke:#1e8449,stroke-width:2px
+    linkStyle 8 stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 5
+```
+
+The dashed red edge is the invariant the whole grounding story rests on: the
+model writes prose and nothing else, so it has no path into the field a
+reader trusts. Everything in the table below is a specific instance of one
+of these boundaries.
 
 | Surface | Threat | Control |
 |---|---|---|
@@ -585,13 +946,46 @@ Package-level files carry the local contract: which file in `contracts/` governs
 
 Implementation proceeds outward from artifacts that can be checked by a machine.
 
-```
-contracts/schema.sql          →  Alembic migration, generated and diff-checked
-contracts/openapi.yaml        →  Pydantic request/response models  (api)
-                              →  typed client                      (web)
-contracts/sse-frames.schema.json → frame validators on both ends
-TypeBox schemas in defineTool →  tool parameter validation         (agent)
-tests/eval/*.yaml             →  retrieval and abstention gates
+```mermaid
+flowchart LR
+    subgraph C["contracts/ — written FIRST"]
+        SQL["schema.sql"]
+        OAS["openapi.yaml"]
+        SSE["sse-frames.schema.json"]
+    end
+
+    subgraph D["Derived, never hand-written alongside"]
+        MIG["Alembic migrations<br/>api/app/db/migrations/"]
+        PYD["Pydantic models<br/>api/app/schemas.py"]
+        TSC["typed client<br/>web/src/api/types.ts"]
+        VP["frame validators<br/>api sse_frames.py + web sse/parser.ts"]
+        TB["TypeBox tool schemas<br/>agent/src/tools/*.ts"]
+    end
+
+    subgraph G["CI gates — make check"]
+        G1["alembic autogenerate diff"]
+        G2["schemathesis"]
+        G3["frame schema conformance, both ends"]
+        G4["ruff, mypy --strict, tsc --strict, biome"]
+        G5["forbidden-pattern scan"]
+        G6["dependency-pin check"]
+        G7["tests/eval — retrieval + abstention"]
+    end
+
+    EVAL["tests/eval/*.yaml<br/>20 in-corpus + 5 out-of-corpus"]
+    CM["CLAUDE.md — root + per package<br/>invariants and forbidden patterns"]
+
+    SQL --> MIG --> G1 -.->|"drift fails the build"| SQL
+    OAS --> PYD --> G2
+    OAS --> TSC --> G2
+    SSE --> VP --> G3
+    TB --> G4
+    EVAL --> G7
+    CM --> G5
+    CM --> G6
+
+    style C fill:#eaf2f8,stroke:#2874a6
+    style G fill:#d5f5e3,stroke:#1e8449
 ```
 
 The ordering matters: each downstream artifact is *derived from* and *validated against* an upstream one, so drift is detected by CI rather than by a human noticing. An agent that invents a response field will fail the OpenAPI conformance test rather than shipping a frontend that silently ignores it.
@@ -709,7 +1103,7 @@ Rejected. It fails a hard client requirement and discards Pi's skills, tool sche
 
 **Decision.** Use pgvector in the same Postgres instance.
 
-**Trade-off.** A dedicated store would offer better recall tuning and faster index builds at this scale's ceiling, but adds a container, a client library, a second backup story and a second failure mode — for a corpus small enough that an `ivfflat` index answers in single-digit milliseconds. One datastore also means citations can be resolved with a join rather than a cross-store lookup, which is what makes the `/chunks/{id}` endpoint trivial.
+**Trade-off.** A dedicated store would offer better recall tuning and faster index builds at this scale's ceiling, but adds a container, a client library, a second backup story and a second failure mode — for a corpus small enough that an exact scan answers in single-digit milliseconds (see the §4 revision note — the ivfflat index this ADR originally assumed has since been dropped). One datastore also means citations can be resolved with a join rather than a cross-store lookup, which is what makes the `/chunks/{id}` endpoint trivial.
 
 **Revisit when:** the corpus grows past roughly a million chunks, or hybrid lexical-plus-vector retrieval becomes necessary.
 
