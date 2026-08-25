@@ -36,7 +36,25 @@ class Settings(BaseSettings):
     )
 
     # ── Retrieval tuning ──────────────────────────────────────────────────
-    retrieval_floor: float = 0.45
+    # Empirically calibrated 2026-08-25 against the real corpus (302
+    # episodes / 8,531 chunks, search_document:/search_query: prefixed
+    # embeddings) and all 25 tests/eval/questions.yaml questions, forced
+    # exact-scan cosine similarity (not ANN-approximated): the 20 in-corpus
+    # questions' top-chunk score ranged 0.7013-0.8274; the 5 out-of-corpus
+    # questions' top-chunk score ranged 0.5703-0.6535. That's a clean,
+    # non-overlapping gap of (0.6535, 0.7013) -- 0.68 sits inside it,
+    # slightly above the exact midpoint (0.6774) to bias toward the
+    # cheaper failure mode (over-abstaining on a borderline in-corpus
+    # question) over the expensive one (answering an out-of-corpus
+    # question with fabricated grounding) per architecture.md's stated
+    # priority on AC3 over AC2. The previous 0.45 was an unvalidated
+    # placeholder carried in the docs as "tuned against the five
+    # out-of-corpus questions" with no artifact showing that tuning ever
+    # ran -- at 0.45 every one of the 5 out-of-corpus questions clears the
+    # floor (lowest observed score 0.5703 > 0.45), so AC3 would have
+    # passed 0/5, not 5/5, the whole time. Re-run the calibration if the
+    # embedding model, prefix scheme, or corpus changes materially.
+    retrieval_floor: float = 0.68
     top_k_default: int = 8
     return_n: int = 4
     session_boost: float = 0.05

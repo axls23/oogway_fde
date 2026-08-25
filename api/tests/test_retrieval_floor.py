@@ -7,6 +7,7 @@ what AC3 tests."
 
 from __future__ import annotations
 
+from app.config import Settings
 from app.services.retrieval import (
     GUEST_NAME_BOOST,
     ScoredChunk,
@@ -14,6 +15,15 @@ from app.services.retrieval import (
     apply_guest_boost,
     apply_session_boost,
 )
+
+
+def test_retrieval_floor_default_matches_empirical_calibration() -> None:
+    # Pins Settings.retrieval_floor's default so it can't silently drift
+    # back to an unvalidated placeholder (the previous 0.45 was exactly
+    # that -- see the long comment on Settings.retrieval_floor). If this
+    # ever needs to change, it should be because the calibration was
+    # re-run (new embedding model/prefix/corpus), not by accident.
+    assert Settings().retrieval_floor == 0.68
 
 
 def _chunk(
