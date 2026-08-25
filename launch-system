@@ -122,7 +122,7 @@ episodes="$(grep -o '"episode_count":[0-9]*' <<<"$config" | grep -o '[0-9]*' || 
 if [[ -z "${episodes:-}" || "$episodes" -eq 0 ]]; then
   log "0 episodes ingested — every question will abstain until you run one of:"
   log "  make ingest-subset      # curated topics, faster"
-  log "  make ingest             # full corpus (269 episodes)"
+  log "  make ingest             # full corpus (303 episodes, ~8,531 chunks; 1 currently fails to parse)"
 fi
 
 # ── 7. Done ───────────────────────────────────────────────────────────────
