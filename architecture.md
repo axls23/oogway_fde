@@ -129,8 +129,8 @@ CREATE TABLE chunks (
   UNIQUE (episode_id, ordinal)
 );
 
-CREATE INDEX chunks_embedding_idx
-  ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+-- No ANN index on chunks.embedding at this corpus size — exact sequential
+-- scan instead; see the design note below and contracts/schema.sql.
 CREATE INDEX chunks_episode_idx ON chunks (episode_id);
 
 -- ─── Conversation ──────────────────────────────────────────────────────
@@ -206,7 +206,17 @@ CREATE TABLE ingest_runs (
 
 `episodes.content_hash` makes re-ingest idempotent: unchanged transcripts are skipped, changed ones have their chunks replaced by cascade.
 
-`ivfflat` with `lists = 100` suits a corpus in the tens of thousands of chunks. `HNSW` would give better recall at higher build cost; at this corpus size the difference is not worth the ingest time.
+**Revised (see contracts/schema.sql).** The seeded corpus is ~8,531 chunks
+across 302 episodes, not tens of thousands, and `ivfflat.probes` was never
+set anywhere in the codebase — every query ran the default `probes = 1`,
+which is a relevance bug (a true nearest neighbor outside the one probed
+cluster is simply invisible), not just an under-tuned latency knob. At this
+corpus size an ANN index buys nothing an exact scan doesn't already give for
+free: `chunks_embedding_idx` (ivfflat) has been dropped in favor of an exact
+sequential scan, which is both fully correct and still single-digit
+milliseconds. See the comment above `chunks_episode_idx` in
+`contracts/schema.sql` for the full reasoning and the revisit threshold
+(~50k-100k chunks).
 
 Migrations run through Alembic on `api` startup, before the service reports healthy.
 

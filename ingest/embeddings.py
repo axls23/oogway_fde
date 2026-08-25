@@ -29,64 +29,6 @@ EMBED_DIMENSIONS = 768  # must match `vector(768)` in contracts/schema.sql
 # for the query-side counterpart.
 SEARCH_DOCUMENT_PREFIX = "search_document: "
 
-
-class EmbeddingError(RuntimeError):
-    """Raised when Ollama is unreachable or returns something we can't use."""
-
-
-class OllamaEmbedder:
-    def __init__(
-        self,
-        base_url: str,
-        model: str,
-        batch_size: int = 16,
-        concurrency: int = 6,
-        timeout_s: float = 600.0,
-        max_retries: int = 2,
-    ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.batch_size = batch_size
-        self.concurrency = concurrency
-        self.timeout_s = timeout_s
-        self.max_retries = max_retries
-
-    async def embed_many(self, texts: list[str]) -> list[list[float]]:
-        """Embed a list of texts, preserving order, via bounded-concurrency
-        batched requests to /api/embed."""
-        if not texts:
-            return []
-
-        batches: list[list[str]] = [
-            texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)
-        ]
-        semaphore = asyncio.Semaphore(self.concurrency)
-        results: list[list[list[float]] | None] = [None] * len(batches)
-
-        async with httpx.AsyncClient(timeout=self.timeout_s) as client:
-
-            async def run_batch(idx: int, batch: list[str]) -> None:
-                async with semaphore:
-                    results[idx] = await self._embed_batch(client, batch)
-
-            await asyncio.gather(*(run_batch(i, b) for i, b in enumerate(batches)))
-
-        embeddings: list[list[float]] = []
-        for batch_result in results:
-            assert batch_result is not None
-            embeddings.extend(batch_result)
-        return embeddings
-
-    async def _embed_batch(self, client: httpx.AsyncClient, batch: list[str]) -> list[list[float]]:
-        """POST one batch to /api/embed, retrying transient failures
-        (timeouts, connection resets) up to `max_retries` times with a
-        short linear backoff before giving up."""
-        url = f"{self.base_url}/api/embed"
-        prefixed_batch = [f"{SEARCH_DOCUMENT_PREFIX}{text}" for text in batch]
-        last_exc: httpx.HTTPError | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                resp = await client.post(url, json={"model": self.model, "input": prefixed_batch})
                 resp.raise_for_status()
                 break
             except httpx.HTTPError as exc:
