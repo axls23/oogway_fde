@@ -19,7 +19,8 @@ health:
 corpus:
 	git clone --depth 1 https://github.com/ChatPRD/lennys-podcast-transcripts.git ingest/corpus
 
-# Full-corpus ingest (269 episodes). Requires db + Ollama reachable.
+# Full-corpus ingest (303 episodes, ~8,531 chunks; 1 currently fails to
+# parse). Requires db + Ollama reachable.
 ingest:
 	cd ingest && python3 ingest.py --episodes all
 
