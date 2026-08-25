@@ -39,4 +39,6 @@ agent/.pi/sessions/
 
 # Logs
 *.log
-.claude/worktrees/
+
+# Claude Code local state (worktrees, session settings) — never a deliverable
+.claude/
